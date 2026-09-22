@@ -1,0 +1,42 @@
+[submodule "plugins/clear-session-history"]
+	path = plugins/clear-session-history
+	url = https://github.com/n0pe-sled/clear-session-history.git
+[submodule "plugins/configurable-subagents"]
+	path = plugins/configurable-subagents
+	url = https://github.com/n0pe-sled/configurable-subagents.git
+[submodule "plugins/context-before-user"]
+	path = plugins/context-before-user
+	url = https://github.com/n0pe-sled/context-before-user.git
+[submodule "plugins/dsh-at-file"]
+	path = plugins/dsh-at-file
+	url = https://github.com/n0pe-sled/dsh-at-file.git
+[submodule "plugins/herdr-themes"]
+	path = plugins/herdr-themes
+	url = https://github.com/n0pe-sled/herdr-themes.git
+[submodule "plugins/per-model-sampling"]
+	path = plugins/per-model-sampling
+	url = https://github.com/n0pe-sled/per-model-sampling.git
+[submodule "plugins/reload"]
+	path = plugins/reload
+	url = https://github.com/n0pe-sled/reload.git
+[submodule "plugins/session-ide"]
+	path = plugins/session-ide
+	url = https://github.com/n0pe-sled/session-ide.git
+[submodule "plugins/session-shell"]
+	path = plugins/session-shell
+	url = https://github.com/n0pe-sled/session-shell.git
+[submodule "plugins/skill-mcp-manager"]
+	path = plugins/skill-mcp-manager
+	url = https://github.com/n0pe-sled/skill-mcp-manager.git
+[submodule "plugins/subscription-logins"]
+	path = plugins/subscription-logins
+	url = https://github.com/n0pe-sled/subscription-logins.git
+[submodule "plugins/system-prompt-editor"]
+	path = plugins/system-prompt-editor
+	url = https://github.com/n0pe-sled/system-prompt-editor.git
+[submodule "plugins/web-search-searxng"]
+	path = plugins/web-search-searxng
+	url = https://github.com/n0pe-sled/web-search-searxng.git
+[submodule "skills"]
+	path = skills
+	url = https://github.com/n0pe-sled/deepseek-harness-skills.git
