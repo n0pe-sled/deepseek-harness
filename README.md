@@ -83,11 +83,26 @@ checks out the harness, builds it, stages the closure, typechecks, unit-tests,
 **smoke-tests the bundled harness**, then packages and uploads the `.dmg`. It
 also publishes a GitHub Release on `v*` tags.
 
+This repository is **private**, so its Releases and Actions artifacts need an
+authenticated account with access — there is no anonymous download link. Signed
+in with the `gh` CLI:
+
+```bash
+gh release download v0.1.0 --repo n0pe-sled/DeepSeek-App --pattern '*.dmg'
+```
+
+To hand the app to someone without a GitHub account, download the `.dmg` and
+send the file itself; the app is self-contained and needs no repository access
+to run.
+
 The harness checkout defaults to the `DSH_HARNESS_REPOSITORY` / `DSH_HARNESS_REF`
-repository variables and can be overridden per run. Set `MAC_CERTIFICATE`,
-`MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and
-`APPLE_TEAM_ID` to sign and notarize; without them the build is ad-hoc signed,
-and macOS quarantines the downloaded app on first launch:
+repository variables and can be overridden per run. `DSH_HARNESS_REF` is pinned
+to a full commit SHA, so a release keeps staging the same harness revision even
+after the harness branch moves; bump the variable to pick up new harness work.
+Set `MAC_CERTIFICATE`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to sign and notarize; without
+them the build is ad-hoc signed, and macOS quarantines the downloaded app on
+first launch:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
