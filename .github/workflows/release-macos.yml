@@ -8,6 +8,11 @@ name: Release macOS app
 #
 # Tracks the harness revision in the build summary so a release always says
 # which harness it carries.
+#
+# Note: the `secrets` context is NOT available in a step-level `if`. Referencing
+# it there does not fail the step — it invalidates the whole workflow file, and
+# the run dies in under a second having created no jobs at all. Secrets may only
+# be used in `env`, `with`, and `run`; branch on them inside the shell instead.
 
 on:
   push:
@@ -136,33 +141,45 @@ jobs:
           pnpm start
           echo "smoke test passed" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build the .dmg (unsigned fallback)
-        if: ${{ secrets.MAC_CERTIFICATE == '' }}
+      - name: Build the .dmg
         working-directory: app
         env:
-          # `CSC_LINK` must be genuinely UNSET here, not merely blank, whenever
-          # there is no certificate to sign with.
+          # When these secrets exist electron-builder signs and notarizes;
+          # otherwise it produces an ad-hoc signed build that runs after the
+          # documented quarantine removal in README.md.
           #
-          # A non-empty CSC_LINK is read as a path to a certificate: importCertificate
-          # resolves a relative one against cwd and then calls `stat.isFile()`, so a
-          # CSC_LINK naming a directory fails the build outright with
-          # "<dir> not a file". This workflow checks the app out into a directory
-          # literally called `app`, and that is exactly the value CSC_LINK defaults
-          # to on a GitHub runner — so leaving it alone failed every run.
-          CSC_LINK: ''
-          CSC_KEY_PASSWORD: ''
-        run: pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
-
-      - name: Build the .dmg (signed and notarized)
-        if: ${{ secrets.MAC_CERTIFICATE != '' }}
-        working-directory: app
-        env:
+          # The secret is not just passed through: its PRESENCE is turned into a
+          # flag, because by the time the shell runs there is no way to tell a
+          # certificate from the directory the runner already points CSC_LINK at.
+          DSH_SIGNING_ENABLED: ${{ secrets.MAC_CERTIFICATE != '' && '1' || '' }}
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
+        run: |
+          # An ABSENT CSC_LINK is not the same as an empty one: electron-builder
+          # reads any non-empty CSC_LINK as a path to a signing certificate,
+          # resolves it, and calls `stat.isFile()` — so a CSC_LINK holding a
+          # directory aborts the build with "<dir> not a file".
+          #
+          # GitHub already sets CSC_LINK in the ambient environment to the
+          # directory the app is checked out into, which is exactly such a
+          # directory, so the no-certificate path has to remove the variable
+          # from the environment rather than blank it. Testing whether CSC_LINK
+          # is non-empty cannot decide this: both the shadowed directory and a
+          # real certificate are non-empty. Only the secret's presence can, and
+          # `secrets` cannot be read in a step-level `if`, so the env block above
+          # records it as a flag for this branch.
+          if [ "${DSH_SIGNING_ENABLED:-}" = "1" ] && [ -n "${CSC_LINK:-}" ]; then
+            echo "using the provided signing certificate"
+          else
+            echo "no signing certificate; dropping CSC_LINK/CSC_KEY_PASSWORD for an ad-hoc signed build"
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+          # --publish never: electron-builder auto-enables publishing on a v* tag,
+          # and the release is published by softprops/action-gh-release below.
+          pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
 
       - name: Summarize the release
         run: |
