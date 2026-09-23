@@ -182,19 +182,29 @@ jobs:
           pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
 
       - name: Summarize the release
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script: these values are paths, and a step output pasted into a shell
+          # string is one quoting mistake away from a broken or unsafe command.
+          HARNESS_WORKSPACE: ${{ steps.harness.outputs.path }}
         run: |
-          HARNESS_VERSION=$(node -p "require('${{ steps.harness.outputs.path }}/apps/cli/package.json').version")
-          HARNESS_REV=$(git -C "${{ steps.harness.outputs.path }}" rev-parse --short HEAD 2>/dev/null || echo unknown)
-          APP_VERSION=$(node -p "require('app/package.json').version")
-          ls -lh app/release/*.dmg >> "$GITHUB_STEP_SUMMARY"
+          # Read versions with a file argument. `require()` resolves a bare
+          # `app/package.json` as a PACKAGE named "app" and fails with
+          # "Cannot find module"; relative paths have to be spelled `./…`.
+          HARNESS_VERSION=$(node -p "require(process.argv[1]).version" "$HARNESS_WORKSPACE/apps/cli/package.json")
+          APP_VERSION=$(node -p "require(process.argv[1]).version" "./app/package.json")
+          HARNESS_REV=$(git -C "$HARNESS_WORKSPACE" rev-parse --short HEAD 2>/dev/null || echo unknown)
+          DMG=$(basename ./app/release/*.dmg)
+          ls -lh ./app/release/*.dmg >> "$GITHUB_STEP_SUMMARY"
           {
             echo ""
             echo "| item | value |"
             echo "| --- | --- |"
-            echo "| app version | $APP_VERSION |"
-            echo "| bundled harness | $HARNESS_VERSION |"
-            echo "| harness revision | $HARNESS_REV |"
+            echo "| app version | ${APP_VERSION} |"
+            echo "| bundled harness | ${HARNESS_VERSION} |"
+            echo "| harness revision | ${HARNESS_REV} |"
             echo "| architecture | ${{ inputs.arch || 'arm64' }} |"
+            echo "| artifact | ${DMG} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the .dmg artifact

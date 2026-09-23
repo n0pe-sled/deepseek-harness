@@ -11,8 +11,8 @@
     "start": "electron .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "stage:harness": "node scripts/stage-harness.mjs",
-    "dist": "pnpm build && electron-builder",
-    "dist:release": "pnpm stage:harness && pnpm build && electron-builder",
+    "dist": "pnpm build && electron-builder --publish never",
+    "dist:release": "pnpm stage:harness && pnpm build && electron-builder --publish never",
     "test": "vitest run"
   },
   "author": {
