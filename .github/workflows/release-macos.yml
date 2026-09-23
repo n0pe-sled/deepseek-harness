@@ -136,18 +136,33 @@ jobs:
           pnpm start
           echo "smoke test passed" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build the .dmg
+      - name: Build the .dmg (unsigned fallback)
+        if: ${{ secrets.MAC_CERTIFICATE == '' }}
         working-directory: app
         env:
-          # When these secrets exist electron-builder signs and notarizes;
-          # otherwise it produces an ad-hoc signed build that runs after the
-          # documented quarantine removal in README.md.
+          # `CSC_LINK` must be genuinely UNSET here, not merely blank, whenever
+          # there is no certificate to sign with.
+          #
+          # A non-empty CSC_LINK is read as a path to a certificate: importCertificate
+          # resolves a relative one against cwd and then calls `stat.isFile()`, so a
+          # CSC_LINK naming a directory fails the build outright with
+          # "<dir> not a file". This workflow checks the app out into a directory
+          # literally called `app`, and that is exactly the value CSC_LINK defaults
+          # to on a GitHub runner — so leaving it alone failed every run.
+          CSC_LINK: ''
+          CSC_KEY_PASSWORD: ''
+        run: pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
+
+      - name: Build the .dmg (signed and notarized)
+        if: ${{ secrets.MAC_CERTIFICATE != '' }}
+        working-directory: app
+        env:
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm exec electron-builder --mac dmg --${{ inputs.arch || 'arm64' }}
+        run: pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
 
       - name: Summarize the release
         run: |
