@@ -1,0 +1,183 @@
+:root {
+  color-scheme: dark;
+  --bg: #1a1d23;
+  --panel: #22262e;
+  --border: #2f3440;
+  --text: #e6e9ef;
+  --muted: #8b93a3;
+  --accent: #4f8cff;
+  --ok: #3fb96f;
+  --err: #e5534b;
+  --warn: #d9a23f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+}
+
+/* The bar is one drag handle; every control opts back out of it. */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  /* Left padding clears the macOS traffic lights under hiddenInset, plus a
+   * buffer so the first tab does not sit on top of them. */
+  padding: 0 10px 0 96px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 auto;
+  max-width: 220px;
+  height: 27px;
+  padding: 0 7px 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.tab:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.tab.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--text);
+}
+/* A lone session reads as a status label, not a tab. */
+.tab.bare { background: transparent; border-color: transparent; }
+.tab.bare:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+.tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tab-close {
+  flex: none;
+  padding: 0 3px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close { opacity: 0.65; }
+.tab-close:hover { color: var(--err); opacity: 1; background: color-mix(in srgb, var(--err) 15%, transparent); }
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.dot.running { background: var(--ok); }
+.dot.starting { background: var(--warn); }
+.dot.error { background: var(--err); }
+.dot.reconnecting { background: var(--warn); }
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.btn.primary:hover { background: #3f7bf0; }
+.btn.tiny { padding: 2px 7px; font-size: 11px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.btn.danger { color: var(--err); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+#modal {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  width: min(360px, 92vw);
+}
+#modal::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+/* Add window: this same page in modal duty, bar chrome hidden so the form
+ * owns the window. */
+body.add-window #topbar { display: none; }
+
+.field { display: block; margin-bottom: 10px; }
+.field span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+.field input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+.error-banner {
+  background: rgba(229, 83, 75, 0.15);
+  border: 1px solid var(--err);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}

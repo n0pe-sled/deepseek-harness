@@ -1,0 +1,64 @@
+{
+  "name": "dsh-desktop",
+  "version": "0.1.0",
+  "description": "macOS desktop shell for local and remote DeepSeek Harness (dsh) instances",
+  "main": "out/main/index.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "stage:harness": "node scripts/stage-harness.mjs",
+    "dist": "pnpm build && electron-builder",
+    "dist:release": "pnpm stage:harness && pnpm build && electron-builder",
+    "test": "vitest run"
+  },
+  "author": {
+    "name": "DSH Desktop"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/ws": "^8.18.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
+  "build": {
+    "appId": "ai.deepseek.dshdesktop",
+    "productName": "DSH Desktop",
+    "files": [
+      "out/**/*"
+    ],
+    "extraFiles": [
+      {
+        "from": "resources",
+        "to": "Resources",
+        "filter": [
+          "harness/**/*"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "title": "DSH Desktop ${version}"
+    }
+  }
+}

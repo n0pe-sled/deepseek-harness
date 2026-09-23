@@ -1,0 +1,191 @@
+name: Release macOS app
+
+# Builds the self-contained .dmg: the Electron shell plus the harness closure
+# staged from a PINNED deepseek-harness checkout (see scripts/stage-harness.mjs).
+# The harness version is whatever that checkout is on — this workflow never
+# installs a published @deepseek-ai/dsh from the registry, because the shipped
+# harness must be the same bytes the developer runs locally.
+#
+# Tracks the harness revision in the build summary so a release always says
+# which harness it carries.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'electron.vite.config.ts'
+      - '.github/workflows/release-macos.yml'
+  workflow_dispatch:
+    inputs:
+      harness_ref:
+        description: 'deepseek-harness git ref to stage (default: the workspace ref this run resolved to)'
+        required: false
+        type: string
+      arch:
+        description: 'macOS architecture to build'
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x64
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macOS is required twice over: the shipped closure carries darwin-specific
+    # native addons (node-pty's spawn-helper, sharp, koffi), and the .dmg can
+    # only be produced on macOS.
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out the app repository
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      # The harness source is a separate repository. When this workflow lives
+      # inside the harness repo itself (app in a subdirectory) the checkout above
+      # already contains it, and resolve_workspace finds it without this step.
+      - name: Check out the pinned harness
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DSH_HARNESS_REPOSITORY || 'n0pe-sled/deepseek-harness' }}
+          ref: ${{ inputs.harness_ref || vars.DSH_HARNESS_REF || 'master' }}
+          path: harness
+          token: ${{ secrets.DSH_HARNESS_TOKEN || github.token }}
+        continue-on-error: true
+
+      - name: Locate the harness workspace
+        id: harness
+        run: |
+          # Prefer a checkout that actually looks like the harness workspace.
+          for candidate in "$GITHUB_WORKSPACE/harness" "$GITHUB_WORKSPACE/app/.." "$GITHUB_WORKSPACE"; do
+            if [ -f "$candidate/apps/cli/package.json" ] && [ -f "$candidate/pnpm-workspace.yaml" ]; then
+              echo "path=$candidate" >> "$GITHUB_OUTPUT"
+              echo "harness workspace: $candidate" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+          echo "::error::no harness workspace found; set the DSH_HARNESS_REPOSITORY variable or dispatch with harness_ref"
+          exit 1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      # The harness workspace is large; install it before the app so a failure
+      # here is unambiguous.
+      - name: Install harness dependencies
+        working-directory: ${{ steps.harness.outputs.path }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the harness
+        working-directory: ${{ steps.harness.outputs.path }}
+        run: pnpm run build
+
+      - name: Install app dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck the app
+        working-directory: app
+        run: pnpm typecheck
+
+      - name: Unit tests
+        working-directory: app
+        run: pnpm test
+
+      - name: Stage the pinned harness into the app
+        working-directory: app
+        env:
+          DSH_HARNESS_WORKSPACE: ${{ steps.harness.outputs.path }}
+        run: pnpm stage:harness
+
+      - name: Build the Electron app
+        working-directory: app
+        run: pnpm build
+
+      # Proves the packaged closure actually boots before a .dmg is published:
+      # the smoke run spawns the bundled harness, loads the UI over the dsh-app
+      # protocol and asserts the settings surface answers.
+      - name: Smoke-test the bundled harness
+        working-directory: app
+        env:
+          DSH_SMOKE: '1'
+          DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
+          DSH_USER_DATA: ${{ runner.temp }}/dsh-smoke-userdata
+        run: |
+          mkdir -p "$DSH_HOME"
+          pnpm start
+          echo "smoke test passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the .dmg
+        working-directory: app
+        env:
+          # When these secrets exist electron-builder signs and notarizes;
+          # otherwise it produces an ad-hoc signed build that runs after the
+          # documented quarantine removal in README.md.
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm exec electron-builder --mac dmg --${{ inputs.arch || 'arm64' }}
+
+      - name: Summarize the release
+        run: |
+          HARNESS_VERSION=$(node -p "require('${{ steps.harness.outputs.path }}/apps/cli/package.json').version")
+          HARNESS_REV=$(git -C "${{ steps.harness.outputs.path }}" rev-parse --short HEAD 2>/dev/null || echo unknown)
+          APP_VERSION=$(node -p "require('app/package.json').version")
+          ls -lh app/release/*.dmg >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo ""
+            echo "| item | value |"
+            echo "| --- | --- |"
+            echo "| app version | $APP_VERSION |"
+            echo "| bundled harness | $HARNESS_VERSION |"
+            echo "| harness revision | $HARNESS_REV |"
+            echo "| architecture | ${{ inputs.arch || 'arm64' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-dmg-${{ inputs.arch || 'arm64' }}
+          path: app/release/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/release/*.dmg
+          generate_release_notes: true
+          body: |
+            macOS build of DSH Desktop, bundling DeepSeek Harness.
+
+            The .dmg is self-contained: it carries the harness closure and runs
+            it with the app's own Electron runtime, so no Node install and no
+            `dsh` on PATH are required.
+
+            Download the `.dmg`, drag **DSH Desktop** into `/Applications`, and
+            launch it. If macOS blocks the first launch, see the quarantine note
+            in the README.

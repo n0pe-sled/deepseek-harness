@@ -1,0 +1,16 @@
+# A bare `node_modules/` pattern (with a trailing slash) matches at ANY depth,
+# so it also matched the staged harness closure under resources/harness — and
+# electron-builder honours this file, which produced a packaged app whose
+# harness had no dependencies and could not boot. Keep these root-anchored.
+/node_modules
+/out/
+/dist/
+/release/
+*.log
+.DS_Store
+
+# Staged harness closure (output of scripts/stage-harness.mjs): hundreds of
+# megabytes of installed dependencies, materialized in CI and at packaging
+# time, never committed. Its own node_modules is covered by this entry.
+/resources/harness/
+/resources/.harness-stage/

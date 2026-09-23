@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DSH Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar" class="topbar">
+        <nav id="tabs" class="tabs" role="tablist" aria-label="DSH sessions"></nav>
+        <p id="hint" class="hint">No instances yet. Add a local dsh, an SSH remote, or a raw URL.</p>
+
+        <div class="actions">
+          <button id="btn-local" class="btn primary">+ Local</button>
+          <button id="btn-ssh" class="btn">+ SSH</button>
+          <button id="btn-raw" class="btn">+ URL</button>
+        </div>
+      </header>
+    </div>
+
+    <dialog id="modal">
+      <form id="modal-form" method="dialog">
+        <h2 id="modal-title">Add instance</h2>
+        <div id="modal-fields"></div>
+        <div class="modal-actions">
+          <button type="button" id="modal-cancel" class="btn">Cancel</button>
+          <button type="button" id="modal-ok" class="btn primary">Add</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
