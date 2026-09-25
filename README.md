@@ -117,7 +117,9 @@ xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
 
 ## Notes for maintainers
 
-- The bundled closure is ~260 MB on disk (~45 MB of the compressed `.dmg`).
+- The bundled closure is ~264 MB on disk, which puts the shipped `.dmg` at
+  175 MB (166 MiB). Almost all of it is the harness and its 180-odd
+  dependencies, not the Electron shell.
 - electron-builder refuses any copy whose *relative* root is named
   `node_modules` (`app-builder-lib/out/util/filter.js`), which silently dropped
   the whole closure when `extraFiles.from` pointed straight at
