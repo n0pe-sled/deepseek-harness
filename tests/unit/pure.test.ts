@@ -200,10 +200,22 @@ describe('describeTarget', () => {
     expect(describeTarget({
       id: 'ssh-2', kind: 'ssh', name: 'box', createdAt: 0,
       ssh: { host: 'box', provision: {} },
+    })).toBe("ssh box, running this app's harness in a sandbox container")
+
+    expect(describeTarget({
+      id: 'ssh-3', kind: 'ssh', name: 'box', createdAt: 0,
+      ssh: { host: 'box', provision: {}, sandbox: { enabled: false } },
     })).toBe("ssh box, shipping this app's harness")
 
+    // Containerized is the built-in default; the explicit opt-out is the
+    // only path that reaches the bare host process.
     expect(describeTarget({ id: 'local-1', kind: 'local', name: 'here', createdAt: 0 }))
-      .toBe('local dsh process')
+      .toBe('sandboxed local dsh container')
+
+    expect(describeTarget({
+      id: 'local-2', kind: 'local', name: 'here', createdAt: 0,
+      local: { sandbox: { enabled: false } },
+    })).toBe('local dsh process')
 
     expect(describeTarget({ id: 'raw-1', kind: 'raw', name: 'url', createdAt: 0, rawUrl: 'http://x' }))
       .toBe('url http://x')

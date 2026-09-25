@@ -188,20 +188,35 @@ function renderTab(view: InstanceView, bare: boolean): HTMLElement {
   return tab
 }
 
-const MODES: Record<string, AddMode> = {
-  local: {
+/** Shown as the image field's placeholder; the default image resolves in main. */
+const DEFAULT_IMAGE_PLACEHOLDER = 'ghcr.io/n0pe-sled/dsh-sandbox:latest'
+
+const MODES: Record<string, AddMode> = {  local: {
     title: 'Add local dsh instance',
     fields: [
       { key: 'name', label: 'Name', placeholder: 'My local dsh', required: true },
-      { key: 'dshPath', label: 'dsh executable (optional)', placeholder: 'dsh' },
-      { key: 'dshHome', label: 'DSH_HOME (optional)', placeholder: '/Users/me/.dsh' },
+      {
+        key: 'sandbox',
+        label: 'Sandbox in a container (recommended)',
+        placeholder: '',
+        type: 'checkbox',
+        hint: 'Runs dsh inside a Docker/Podman container: filesystem, processes, and every helper it spawns stay in the sandbox. '
+          + 'Only mounted directories are shared. Unchecking this runs dsh directly on this machine.',
+      },
+      { key: 'image', label: 'Container image (optional)', placeholder: DEFAULT_IMAGE_PLACEHOLDER },
+      { key: 'dshPath', label: 'dsh executable (no sandbox only)', placeholder: 'dsh' },
+      { key: 'dshHome', label: 'DSH_HOME (no sandbox only)', placeholder: '/Users/me/.dsh' },
     ],
     async submit(values) {
       const env = values.dshHome !== '' && values.dshHome !== undefined ? { DSH_HOME: values.dshHome } : undefined
+      const sandboxOn = values.sandbox === 'true'
       await shellManager.addLocal({
         name: values['name'] ?? 'local',
-        ...(values.dshPath !== undefined && values.dshPath !== '' ? { dshPath: values.dshPath } : {}),
-        ...(env !== undefined ? { env } : {}),
+        ...(!sandboxOn && values.dshPath !== undefined && values.dshPath !== '' ? { dshPath: values.dshPath } : {}),
+        ...(!sandboxOn && env !== undefined ? { env } : {}),
+        ...(sandboxOn
+          ? { sandbox: { enabled: true, ...(values.image !== undefined && values.image !== '' ? { image: values.image } : {}) } }
+          : { sandbox: { enabled: false } }),
       })
     },
   },
@@ -223,9 +238,20 @@ const MODES: Record<string, AddMode> = {
           + 'Needs key-based ssh, node on the host, and about 300MB of disk. '
           + 'With this on, the remote dsh port above is ignored.',
       },
+      {
+        key: 'sandbox',
+        label: 'Run it in a sandbox container on the host (recommended)',
+        placeholder: '',
+        type: 'checkbox',
+        hint: 'Pulls the prebuilt sandbox image on the host and runs the harness in a container there. '
+          + 'Needs Docker on the remote host, and no node install or closure shipping. Unchecking this '
+          + 'ships the bare closure and uses the host\'s own node.',
+      },
+      { key: 'sandboxImage', label: 'Container image (optional)', placeholder: DEFAULT_IMAGE_PLACEHOLDER },
     ],
     async submit(values) {
       const provision = values['provision'] === 'true'
+      const sandboxOn = values['sandbox'] === 'true'
       await shellManager.addSsh({
         name: values['name'] ?? 'ssh',
         ssh: {
@@ -236,7 +262,7 @@ const MODES: Record<string, AddMode> = {
           // instance discovers its port, so storing the field would be a lie.
           ...(!provision && numbers(values, 'remotePort') !== undefined ? { remotePort: numbers(values, 'remotePort') } : {}),
           ...(values['identityFile'] !== undefined && values['identityFile'] !== '' ? { identityFile: values['identityFile'] } : {}),
-          ...(provision ? { provision: {} } : {}),
+          ...(provision ? { provision: {}, ...(sandboxOn ? { sandbox: { enabled: true, ...(values['sandboxImage'] !== undefined && values['sandboxImage'] !== '' ? { image: values['sandboxImage'] } : {}) } } : { sandbox: { enabled: false } }) } : {}),
         },
       })
     },

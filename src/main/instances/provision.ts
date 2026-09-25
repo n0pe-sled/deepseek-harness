@@ -20,7 +20,9 @@ import { spawn } from 'node:child_process'
 import { readdirSync, statSync } from 'node:fs'
 import { formatTarget, harnessCacheKey, parseTarget, targetsEqual } from '../../shared/harness-target.ts'
 import type { StageTarget } from '../../shared/harness-target.ts'
-import type { ProvisionOptions, SshOptions } from '../../shared/instance.ts'
+import type { ProvisionOptions, SandboxOptions, SshOptions } from '../../shared/instance.ts'
+import { SANDBOX_RELAY_PORT } from '../../shared/instance.ts'
+import { buildRemoteSandboxCommand, parseDockerPort, resolveSandboxOptions } from './sandbox.ts'
 import { ClosureNotFoundError, findClosures, selectClosure, type ClosureEntry } from './closure-catalog.ts'
 import {
   buildDetectCommand,
@@ -45,6 +47,17 @@ const READY_TIMEOUT_MS = 60_000
 const SHIP_TIMEOUT_MS = 10 * 60_000
 /** How long a short probe command may take. */
 const PROBE_TIMEOUT_MS = 30_000
+
+/** What a completed sandboxed provisioning run produced. */
+export interface SandboxProvisionResult {
+  /** Remote loopback port the container's relay publishes. */
+  remotePort: number
+  /** The image the remote is running. */
+  image: string
+}
+
+/** How long a sandboxed remote launch (including the image pull) may take. */
+const SANDBOX_LAUNCH_TIMEOUT_MS = 20 * 60_000
 
 /** What a completed provisioning run produced. */
 export interface ProvisionResult {
@@ -345,6 +358,12 @@ export class RemoteProvisioner {
     return result?.stdout.trim() === 'dead'
   }
 
+  /** Stop (and remove) the remote sandbox container; gone is success. */
+  async stopRemoteSandbox(opts: SshOptions, name: string): Promise<void> {
+    await this.run(opts, `docker rm -f ${shellQuote(name)} >/dev/null 2>&1; echo stopped`).catch(() => undefined)
+    this.deps.log('remote sandbox container removed')
+  }
+
   /** Stop a running remote server and confirm it is gone. */
   async stopRemote(opts: SshOptions, remoteDir: string): Promise<void> {
     const pidPath = `${remoteDir}/dsh.pid`
@@ -409,6 +428,52 @@ export class RemoteProvisioner {
       reused,
     }
   }
+
+  /**
+   * Sandboxed provisioning: run the harness in a container on the remote.
+   *
+   * Everything ships inside the image, so the closure stages (detect, select,
+   * ship) are all skipped — what remains is a docker preflight and a launch.
+   * The relay inside the container publishes to the remote's loopback, and the
+   * caller tunnels to that published port exactly as it tunnels to a bare
+   * harness port, so the trust fence needs no new work.
+   */
+  async prepareSandboxed(
+    opts: SshOptions,
+    sandbox: SandboxOptions,
+    identity: { containerName: string; dshHomeRoot: string },
+  ): Promise<SandboxProvisionResult> {
+    this.deps.log('preflight: checking for docker on the remote')
+    const probe = await this.run(opts, 'command -v docker >/dev/null 2>&1 && echo ok || echo missing')
+    if (probe.stdout.includes('missing')) {
+      throw new ProvisionRefusedError(
+        `${opts.host} has no \`docker\` on PATH. A sandboxed remote runs the harness in a container, `
+        + 'which needs a working container runtime on the remote itself. '
+        + 'Turn off sandboxing for this instance to ship the closure and run it directly instead.',
+      )
+    }
+    const resolved = resolveSandboxOptions(sandbox)
+    const remoteDshHome = `${identity.dshHomeRoot}/${identity.containerName}/dsh-home`
+    this.deps.log(`launching the sandbox container (${resolved.image}) on the remote`)
+    const command = buildRemoteSandboxCommand({
+      name: identity.containerName,
+      image: resolved.image,
+      remoteDshHome,
+      runArgs: resolved.runArgs,
+      outboundNetwork: resolved.outboundNetwork,
+      mounts: resolved.mounts,
+    })
+    const result = await this.run(opts, command, SANDBOX_LAUNCH_TIMEOUT_MS)
+    const remotePort = parseDockerPort(result.stdout, SANDBOX_RELAY_PORT)
+    if (remotePort === undefined) {
+      throw new ProvisionRefusedError(
+        `the sandbox container started on ${opts.host}, but no published relay port came back:\n${lastLines(result.stdout, 4)}`,
+      )
+    }
+    this.deps.log(`remote sandbox listening on 127.0.0.1:${String(remotePort)}`)
+    return { remotePort, image: resolved.image }
+  }
+
 }
 
 /** Last `count` non-empty lines, joined for one-line error messages. */

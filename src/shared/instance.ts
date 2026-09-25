@@ -30,6 +30,14 @@ export interface SshOptions {
    * the readiness line.
    */
   provision?: ProvisionOptions
+  /**
+   * Run the provisioned remote harness inside a container on the remote host,
+   * using the prebuilt sandbox image (the closure ships inside the image, so
+   * this path needs no remote Node and no closure shipping). Only meaningful
+   * when `provision` is set — a sandbox with nothing provisioned has nothing
+   * to run, and that combination must refuse loudly rather than run bare.
+   */
+  sandbox?: SandboxOptions
 }
 
 /** How a provisioned remote instance ships and runs the harness closure. */
@@ -46,18 +54,61 @@ export interface ProvisionOptions {
   nodePath?: string
 }
 
+/**
+ * How one harness process is isolated. Same shape for local and remote: it
+ * hangs off `LocalOptions` for a local instance and off `SshOptions` (next to
+ * `provision`) for a remote one, mirroring how `provision` extended the SSH
+ * branch instead of inventing a fourth instance kind.
+ */
+export interface SandboxOptions {
+  /**
+   * Whether the harness runs inside a container. Default true when the field
+   * is absent (containerized is the built-in default); `false` opts this
+   * instance out and restores the direct host-process behavior.
+   */
+  enabled?: boolean
+  /**
+   * Container image. The default image bakes the fork's harness closure and
+   * every plugin, so neither this machine nor the remote needs a Node install
+   * or a staged closure.
+   */
+  image?: string
+  /** Directories mounted into the container. `readOnly` defaults false. */
+  mounts?: Array<{ hostPath: string; containerPath?: string; readOnly?: boolean }>
+  /**
+   * Directory backing the container's `$DSH_HOME`, mounted read-write. Left
+   * absent, the supervisor picks a sandbox-private directory per instance:
+   * sharing the host's real `~/.dsh` would hand the container the same model
+   * credentials the host has.
+   */
+  dshHome?: string
+  /** Extra argv spliced into `docker run` before the image (never after). */
+  runArgs?: string[]
+  /** Outbound network for the container. Default true; false maps to `--network none`. */
+  outboundNetwork?: boolean
+}
+
+/** The default image: the fork's closure + all plugins, published by CI. */
+export const DEFAULT_SANDBOX_IMAGE = 'ghcr.io/n0pe-sled/dsh-sandbox:latest'
+
+/** The relay port inside the container; the harness stays on container loopback. */
+export const SANDBOX_RELAY_PORT = 3081
+
 /** Local instance: spawned `dsh web` child process. */
 export interface LocalOptions {
   /**
    * dsh executable to spawn instead of the bundled harness. Omitted (or empty)
    * uses the harness closure this build ships, launched through the app's own
    * Electron binary as its Node runtime — no Node install, no PATH entry.
+   * Meaningless while the sandbox is enabled: a container boots the image.
    */
   dshPath?: string
   /** Extra args appended after `web --port 0 --no-open`. */
   dshArgs?: string[]
   /** Extra environment (e.g. DSH_HOME). */
   env?: Record<string, string>
+  /** Container sandbox; absent field means the built-in default (enabled). */
+  sandbox?: SandboxOptions
 }
 
 export interface InstanceConfig {
@@ -122,6 +173,8 @@ export interface AddLocalInput {
   dshPath?: string
   dshArgs?: string[]
   env?: Record<string, string>
+  /** Container sandbox; absent means the built-in default (enabled). */
+  sandbox?: SandboxOptions
 }
 
 export interface AddSshInput {

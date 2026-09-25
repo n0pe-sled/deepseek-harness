@@ -51,6 +51,9 @@ async function main(): Promise<void> {
     // directory is the same one the local instance boots from: `Resources` in a
     // packaged app, the checkout's `resources/` in development.
     resourcesDir: dirname(bundledHarnessRoot()),
+    // Sandbox-private DSH_HOME directories live under the app's own data dir,
+    // so a container never needs the user's real ~/.dsh to work.
+    sandboxDshHomeRoot: join(app.getPath('userData'), 'sandboxes'),
   })
   await manager.load()
 

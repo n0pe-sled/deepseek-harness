@@ -14,7 +14,10 @@ import type {
   SshOptions,
 } from '../../shared/instance.ts'
 import { formatTarget } from '../../shared/harness-target.ts'
+import { join } from 'node:path'
 import { startLocalDsh, type LocalHandle } from './local.ts'
+import { containerName, resolveSandboxOptions, startSandboxedDsh, type ResolvedSandbox } from './sandbox.ts'
+import type { SandboxOptions } from '../../shared/instance.ts'
 import { resolveBundledHarness } from './bundled.ts'
 import { RemoteProvisioner, type ProvisionResult } from './provision.ts'
 import { remoteClosureDir } from './provision-parse.ts'
@@ -53,6 +56,8 @@ export class InstanceManager {
     private readonly provisioning?: {
       resourcesDir: string
       provisioner?: (deps: { resourcesDir: string; log: (line: string) => void }) => RemoteProvisioner
+      /** Root for sandbox-private DSH_HOME directories, local and remote. */
+      sandboxDshHomeRoot?: string
     },
   ) {}
 
@@ -123,6 +128,7 @@ export class InstanceManager {
         ...(input.dshPath !== undefined ? { dshPath: input.dshPath } : {}),
         ...(input.dshArgs !== undefined ? { dshArgs: input.dshArgs } : {}),
         ...(input.env !== undefined ? { env: input.env } : {}),
+        ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
       },
     })
     return this.mount(config)
@@ -132,7 +138,6 @@ export class InstanceManager {
     const config = this.store.add({ kind: 'ssh', name: input.name, ssh: input.ssh })
     return this.mount(config)
   }
-
   addRaw(input: AddRawInput): InstanceView {
     const rawUrl = normalizeRawUrl(input.url)
     const config = this.store.add({ kind: 'raw', name: input.name, rawUrl })
@@ -197,27 +202,57 @@ export class InstanceManager {
       let origin: HarnessOrigin | undefined
       let revision: string | undefined
       if (config.kind === 'local') {
-        const h = await startLocalDsh(config.local ?? {}, (line) => this.log(id, line))
-        handle = h
-        endpoint = h.endpoint
-        onExit = h.onExit
-        const bundled = resolveBundledHarness()
-        if (bundled?.meta !== undefined) {
-          revision = bundled.meta.revision
-          origin = { closureKey: bundled.meta.version, target: bundled.meta.source }
+        const sandbox = resolveSandboxOptions(config.local?.sandbox)
+        if (sandbox.enabled) {
+          // Containerized by default: the image carries the closure and every
+          // plugin, so neither a Node install nor a staged closure is needed.
+          // The DSH_HOME default is sandbox-private per instance — sharing the
+          // host's real home would hand the container the host's credentials.
+          const dshHome = sandbox.dshHome
+            ?? join(this.provisioning?.sandboxDshHomeRoot ?? 'sandboxes', config.id, 'dsh-home')
+          const h = await startSandboxedDsh({
+            name: containerName(config.id),
+            sandbox: { ...sandbox, dshHome },
+            defaultDshHome: dshHome,
+            log: (line) => this.log(id, line),
+          })
+          handle = h
+          endpoint = h.endpoint
+          onExit = h.onExit
+          origin = { closureKey: sandbox.image }
+        } else {
+          const h = await startLocalDsh(config.local ?? {}, (line) => this.log(id, line))
+          handle = h
+          endpoint = h.endpoint
+          onExit = h.onExit
+          const bundled = resolveBundledHarness()
+          if (bundled?.meta !== undefined) {
+            revision = bundled.meta.revision
+            origin = { closureKey: bundled.meta.version, target: bundled.meta.source }
+          }
         }
       } else if (config.kind === 'ssh' && config.ssh?.provision !== undefined) {
         const ssh = config.ssh
-        const port = await this.provisionRemote(id, ssh)
-        const h = await forwardSshTunnelTo(ssh, port.remotePort, (line) => this.log(id, line))
-        handle = h
-        endpoint = h.endpoint
-        onExit = h.onExit
-        revision = port.revision
-        origin = {
-          closureKey: port.closureKey,
-          target: formatTarget(port.target),
-          provisioned: true,
+        const sandbox = resolveSandboxOptions(ssh.sandbox)
+        if (sandbox.enabled) {
+          const sandboxed = await this.provisionRemoteSandboxed(id, ssh, sandbox, config.id)
+          const h = await forwardSshTunnelTo(ssh, sandboxed.remotePort, (line) => this.log(id, line))
+          handle = h
+          endpoint = h.endpoint
+          onExit = h.onExit
+          origin = { closureKey: sandboxed.image, provisioned: true }
+        } else {
+          const port = await this.provisionRemote(id, ssh)
+          const h = await forwardSshTunnelTo(ssh, port.remotePort, (line) => this.log(id, line))
+          handle = h
+          endpoint = h.endpoint
+          onExit = h.onExit
+          revision = port.revision
+          origin = {
+            closureKey: port.closureKey,
+            target: formatTarget(port.target),
+            provisioned: true,
+          }
         }
       } else if (config.kind === 'ssh') {
         const h = await forwardSshTunnel(config.ssh ?? { host: '' }, (line) => this.log(id, line))
@@ -263,6 +298,11 @@ export class InstanceManager {
     const handle = managed.handle
     managed.handle = undefined
     if (handle !== undefined && 'stop' in handle) await handle.stop()
+    // The app owns a sandboxed remote's container: closing the tunnel is not
+    // enough, the container would keep running (and holding its port) unseen.
+    if (managed.config.kind === 'ssh' && managed.config.ssh?.provision !== undefined) {
+      await this.stopRemoteSandbox(id)
+    }
     managed.runtime = { status: 'stopped' }
     this.emit()
   }
@@ -289,6 +329,39 @@ export class InstanceManager {
     const provisioner = config.provisioner?.({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
       ?? new RemoteProvisioner({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
     return provisioner.prepare(ssh, ssh.provision ?? {})
+  }
+
+  /**
+   * Sandboxed remote provisioning: only docker preflight + launch, since the
+   * closure ships inside the image. Separate from {@link provisionRemote} so
+   * each failure mode is explicit on the instance log.
+   */
+  private async provisionRemoteSandboxed(
+    id: string,
+    ssh: SshOptions,
+    sandbox: ResolvedSandbox,
+    instanceId: string,
+  ): Promise<{ remotePort: number; image: string }> {
+    const config = this.provisioning
+    const dshHomeRoot = config?.sandboxDshHomeRoot ?? 'sandboxes'
+    const provisioner = config?.provisioner?.({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
+      ?? new RemoteProvisioner({ resourcesDir: config?.resourcesDir ?? '.', log: (line) => this.log(id, line) })
+    return provisioner.prepareSandboxed(ssh, { ...sandbox }, {
+      containerName: containerName(instanceId),
+      dshHomeRoot,
+    })
+  }
+
+  /** Stop the remote sandbox container for one provisioned instance, if any. */
+  async stopRemoteSandbox(id: string): Promise<void> {
+    const managed = this.managed.get(id)
+    const ssh = managed?.config.ssh
+    if (managed === undefined || ssh?.provision === undefined || resolveSandboxOptions(ssh.sandbox).enabled !== true) return
+    const config = this.provisioning
+    if (config === undefined) return
+    const provisioner = config.provisioner?.({ resourcesDir: config.resourcesDir, log: () => undefined })
+      ?? new RemoteProvisioner({ resourcesDir: config.resourcesDir, log: () => undefined })
+    await provisioner.stopRemoteSandbox(ssh, containerName(id))
   }
 
   /** Stop the remote harness a provisioned instance started, if any. */
@@ -387,9 +460,17 @@ export function describeTarget(config: InstanceConfig): string {
     const destination = ssh === undefined
       ? 'ssh'
       : `${ssh.user === undefined || ssh.user === '' ? '' : `${ssh.user}@`}${ssh.host}`
-    if (ssh?.provision !== undefined) return `ssh ${destination}, shipping this app's harness`
+    if (ssh?.provision !== undefined) {
+      return resolveSandboxOptions(ssh.sandbox).enabled
+        ? `ssh ${destination}, running this app's harness in a sandbox container`
+        : `ssh ${destination}, shipping this app's harness`
+    }
     return `ssh ${destination}, forwarding remote port ${String(ssh?.remotePort ?? 3000)}`
   }
-  if (config.kind === 'local') return 'local dsh process'
+  if (config.kind === 'local') {
+    return resolveSandboxOptions(config.local?.sandbox).enabled
+      ? 'sandboxed local dsh container'
+      : 'local dsh process'
+  }
   return `url ${config.rawUrl ?? ''}`
 }
