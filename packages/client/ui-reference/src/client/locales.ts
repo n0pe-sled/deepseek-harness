@@ -5,18 +5,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 /** Dictionary namespace owned by this plugin. */
 export const NS = 'reference'
 
-/** Simplified Chinese dictionary (the key-set source of truth). */
-export const zh = {
-  'section.files': '文件与文件夹',
-  'section.sessions': 'Session 对话',
-  'candidate.file': '文件',
-  'candidate.folder': '文件夹',
-  'candidate.session': 'Session',
-  'candidate.noCwd': '（无工作目录）',
-} satisfies Record<string, string>
-
 /** The reference namespace key union. */
-export type ReferenceKey = keyof typeof zh
+export type ReferenceKey = keyof typeof en
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -25,7 +15,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** English dictionary, checked complete against the zh key set. */
+/** The complete English dictionary. */
 export const en = {
   'section.files': 'Files & folders',
   'section.sessions': 'Session conversations',
@@ -33,4 +23,4 @@ export const en = {
   'candidate.folder': 'Folder',
   'candidate.session': 'Session',
   'candidate.noCwd': '(no cwd)',
-} satisfies Record<ReferenceKey, string>
+} satisfies Record<string, string>

@@ -12,6 +12,25 @@ import { createWebConnectionRpc, type RpcFetch } from './rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
+/**
+ * Page origins this deployment treats as loopback-equivalent, lowercased. A
+ * reverse proxy in front of dsh supplies the loopback Host its privileged
+ * methods require, so a browser served from one of these origins is granted the
+ * same settings and host controls as a local page. Origins come from the
+ * host-injected `__DSH_LOOPBACK_ORIGINS__` (the `DSH_WEB_LOOPBACK_ORIGINS`
+ * launch variable) unioned with the build-time `DSH_CLIENT_LOOPBACK_ORIGINS`.
+ */
+const injectedLoopbackOrigins = (globalThis as { __DSH_LOOPBACK_ORIGINS__?: unknown }).__DSH_LOOPBACK_ORIGINS__
+const LOOPBACK_ORIGINS = new Set([
+  ...(process.env.DSH_CLIENT_LOOPBACK_ORIGINS ?? '')
+    .split(',')
+    .map(origin => origin.trim().toLowerCase())
+    .filter(origin => origin !== ''),
+  ...(Array.isArray(injectedLoopbackOrigins) ? injectedLoopbackOrigins : [])
+    .filter((origin): origin is string => typeof origin === 'string')
+    .map(origin => origin.toLowerCase()),
+])
+
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
   ApiProxy, SessionsApi, SessionSearchItem, SessionSummary, PromptContentPart, HostApi, EventsApi, MuxFrame, HostFrame,
@@ -85,7 +104,7 @@ interface ClientTransportGlobal {
 export interface ConnectionHandle {
   /** Shared api client (fixture or real, decided at boot from the page URL). */
   readonly api: IApiClient
-  /** Whether the current page authority is loopback; non-browser contexts default to true. */
+  /** Whether the current page authority is loopback or a configured loopback-equivalent origin; non-browser contexts default to true. */
   readonly isLoopback: boolean
   /** Generation-scoped Host facts, including the account home and native path-open capability. */
   readonly hostDescription: HostDescriptionSource
@@ -129,7 +148,9 @@ export function apply(ctx: Context): void {
   }
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: pageLocation === undefined
+      || isLoopbackHostname(pageLocation.hostname)
+      || LOOPBACK_ORIGINS.has(pageLocation.hostname.toLowerCase()),
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {

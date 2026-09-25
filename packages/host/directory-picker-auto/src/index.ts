@@ -1,8 +1,9 @@
 /**
  * Adaptive chooser of the directory-picker seam: resolves the host's
- * situation once at boot (bind host, SSH launch, display session, Linux
- * chooser binary) and mounts the matching interaction — `native` or `browse`
- * — as real Loader entries in the in-memory root tree. Each interaction is a
+ * situation once at boot (bind host, SSH launch, remote-browser origins,
+ * display session, Linux chooser binary) and mounts the matching interaction
+ * — `native` or `browse` — as real Loader entries in the in-memory root
+ * tree. Each interaction is a
  * pair: the Host backend serving the seam capability and the client surface
  * occupying ui-workspace's directory-flow holes. Both arrive as ordinary
  * entries, so the surface is discovered exactly as a config-row's would be

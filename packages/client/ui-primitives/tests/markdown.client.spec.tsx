@@ -2,7 +2,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { cjkFriendlyStrong } from '../src/markdown/cjkFriendlyStrong.ts'
 import { mathCompatibility } from '../src/markdown/mathCompatibility.ts'
 
 afterEach(cleanup)
@@ -62,7 +61,7 @@ describe('MarkdownText', () => {
     // The ts fence routed through the shared CodeBlock: shiki token spans + banner.
     expect(container.querySelector('pre.shiki')).not.toBeNull()
     expect(screen.getByText('ts')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy()
     expect(container.querySelector('br')).not.toBeNull()
     expect(screen.getByRole('link', { name: 'safe' }).getAttribute('target')).toBe('_blank')
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
@@ -189,20 +188,6 @@ describe('MarkdownText', () => {
       <MarkdownText text={'`index.html`\n\nmore\n\n'} streaming fileMentions={fileMentions} />,
     )
     expect(streamed.container.querySelector('button')).toBeNull()
-  })
-
-  it('exposes the CJK strong syntax as a micromark extension needing CommonMark attention markers', () => {
-    const extension = cjkFriendlyStrong()
-    expect(cjkFriendlyStrong()).toBe(extension)
-    const construct = extension.text?.[42]
-    const tokenizer = Array.isArray(construct) ? construct[0]?.tokenize : construct?.tokenize
-    expect(tokenizer).toBeTypeOf('function')
-    expect(() => tokenizer?.call({
-      parser: { constructs: { attentionMarkers: {} } },
-      previous: null,
-    } as never, {} as never, () => undefined, () => undefined)).toThrow(
-      'micromark CommonMark attention markers are unavailable',
-    )
   })
 
   it('a fence labeled with an inherited object key renders plain, never crashing shiki', () => {
@@ -513,6 +498,6 @@ describe('JsonBlock', () => {
     const { container } = render(<JsonBlock label="x" payload={big} defaultOpen />)
     const body = container.querySelector('pre')!.textContent
     expect(body.length).toBeLessThan(30_000)
-    expect(body).toContain('截断')
+    expect(body).toContain('truncated')
   })
 })

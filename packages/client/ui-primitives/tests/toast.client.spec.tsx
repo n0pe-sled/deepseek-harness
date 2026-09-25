@@ -11,9 +11,9 @@ describe('Toast', () => {
     vi.useFakeTimers()
     try {
       const onDone = vi.fn()
-      const view = render(<Toast text="最多添加 50 张图片" icon={<svg data-testid="icon" />} onDone={onDone} />)
+      const view = render(<Toast text="Up to 50 images can be added" icon={<svg data-testid="icon" />} onDone={onDone} />)
       const banner = view.getByRole('alert')
-      expect(banner.textContent).toContain('最多添加 50 张图片')
+      expect(banner.textContent).toContain('Up to 50 images can be added')
       expect(view.getByTestId('icon')).toBeTruthy()
       vi.advanceTimersByTime(3999)
       expect(onDone).not.toHaveBeenCalled()

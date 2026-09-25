@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   extendArchiveManifest,
-  gitBlobHash,
   parseArchiveManifest,
   renderArchiveManifest,
   validateArchiveArtifacts,
@@ -12,13 +11,9 @@ import { isArchivedAgentNotePath } from './repo-files.ts'
 
 function fixture(): Map<string, Buffer> {
   const base = '2026-07-26-example'
-  const source = Buffer.from(`# Agent Note: Example\n\nStatus: implemented\nArchived: 2026-07-26\n\nEnglish | [中文](${base}.zh.md)\n\n## Problem\n\nExample.\n`)
-  const zh = Buffer.from(`# Agent Note: 示例\n\nStatus: implemented\nArchived: 2026-07-26\n\n[English](${base}.md) | 中文\n\n## 问题\n\n示例。\n`)
-  const meta = Buffer.from(`${base}.md: ${gitBlobHash(source)}\n${base}.zh.md: ${gitBlobHash(zh)}\n`)
+  const source = Buffer.from('# Agent Note: Example\n\nStatus: implemented\nArchived: 2026-07-26\n\n## Problem\n\nExample.\n')
   return new Map([
     [`process/${base}.md`, source],
-    [`process/${base}.zh.md`, zh],
-    [`process/${base}.i18n.yaml`, meta],
   ])
 }
 
@@ -29,18 +24,21 @@ describe('archived Agent Notes', () => {
     expect(isArchivedAgentNotePath('.agents/notes/implemented/process/example.md')).toBe(false)
   })
 
-  it('accepts one complete implemented triplet with matching archive metadata', () => {
+  it('accepts one complete implemented English note', () => {
     expect(validateArchiveArtifacts(fixture())).toEqual([])
   })
 
-  it('rejects incomplete triplets and invalid archive headers', () => {
+  it('rejects invalid archive headers and removed bilingual sidecars', () => {
     const artifacts = fixture()
-    artifacts.delete('process/2026-07-26-example.i18n.yaml')
     artifacts.set(
       'process/2026-07-26-example.md',
       Buffer.from('# Agent Note: Example\n\nStatus: proposed\nArchived: yesterday\n'),
     )
-    expect(validateArchiveArtifacts(artifacts).join('\n')).toMatch(/incomplete archived triplet/)
+    artifacts.set('process/2026-07-26-example.zh.md', Buffer.from('# Agent Note: Example\n'))
+    artifacts.set('process/2026-07-26-example.i18n.yaml', Buffer.from('example.md: abc\n'))
+    const errors = validateArchiveArtifacts(artifacts).join('\n')
+    expect(errors).toMatch(/line 3 must be `Status: implemented`/)
+    expect(errors).toMatch(/bilingual sidecars are removed/)
   })
 
   it('extends the manifest without permitting a sealed change or removal', () => {
@@ -48,7 +46,7 @@ describe('archived Agent Notes', () => {
     const empty: ArchiveManifest = { version: 1, files: {} }
     const first = extendArchiveManifest(empty, artifacts)
     expect(first.errors).toEqual([])
-    expect(first.added).toHaveLength(3)
+    expect(first.added).toHaveLength(1)
 
     const sealed: ArchiveManifest = { version: 1, files: first.files }
     const changed = new Map(artifacts)
@@ -56,10 +54,27 @@ describe('archived Agent Notes', () => {
     expect(extendArchiveManifest(sealed, changed).errors).toEqual([
       'process/2026-07-26-example.md: sealed content hash changed',
     ])
-    changed.delete('process/2026-07-26-example.zh.md')
+    changed.delete('process/2026-07-26-example.md')
     expect(extendArchiveManifest(sealed, changed).errors).toContain(
-      'process/2026-07-26-example.zh.md: sealed artifact is missing',
+      'process/2026-07-26-example.md: sealed artifact is missing',
     )
+  })
+
+  it('retains sealed bilingual sidecar entries without requiring their files', () => {
+    const artifacts = fixture()
+    const first = extendArchiveManifest({ version: 1, files: {} }, artifacts)
+    const sealed: ArchiveManifest = {
+      version: 1,
+      files: {
+        ...first.files,
+        'process/2026-07-26-example.zh.md': `sha256:${'b'.repeat(64)}`,
+        'process/2026-07-26-example.i18n.yaml': `sha256:${'c'.repeat(64)}`,
+      },
+    }
+    const extension = extendArchiveManifest(sealed, artifacts)
+    expect(extension.errors).toEqual([])
+    expect(extension.files['process/2026-07-26-example.zh.md']).toBe(`sha256:${'b'.repeat(64)}`)
+    expect(validateArchiveManifestExtension(sealed, sealed)).toEqual([])
   })
 
   it('rejects replacing manifest seals alongside changed archive content', () => {

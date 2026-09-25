@@ -65,7 +65,7 @@ describe('createFixtureApi', () => {
   it('searches current message text with literal unicode61-style token phrases', async () => {
     const api = createFixtureApi()
     const signal = new AbortController().signal
-    const phrase = await api.sessions.search(req({ query: 'FIXTURE 历史消息' }), signal)
+    const phrase = await api.sessions.search(req({ query: 'FIXTURE HISTORY MESSAGE' }), signal)
     expect(phrase.result).toMatchObject({
       ok: true,
       value: {
@@ -74,7 +74,7 @@ describe('createFixtureApi', () => {
       },
     })
     if (!phrase.result.ok) throw new Error('search failed')
-    expect(phrase.result.value.items[0]?.snippet).toContain('fixture 历史消息')
+    expect(phrase.result.value.items[0]?.snippet).toContain('fixture history message')
 
     timing().appendUser(
       'fx-alpha',
@@ -103,7 +103,9 @@ describe('createFixtureApi', () => {
       ok: true,
       value: { items: [], hasMore: false },
     })
-    const reasoningOnly = await api.sessions.search(req({ query: '思考过程' }), signal)
+    // Reasoning blocks are not searchable: this phrase exists only in a
+    // `reasoning` block of the seeded history.
+    const reasoningOnly = await api.sessions.search(req({ query: 'COLLAPSIBLE REASONING PASSAGE' }), signal)
     expect(reasoningOnly.result).toEqual({
       ok: true,
       value: { items: [], hasMore: false },
@@ -287,7 +289,7 @@ describe('createFixtureApi', () => {
     expect(list.result.value.items.some(s => s.sessionId === createdId)).toBe(true)
   })
 
-  it('prompt replays a full streamed turn and cancel mid-replay freezes with (已中断)', async () => {
+  it('prompt replays a full streamed turn and cancel mid-replay freezes with (interrupted)', async () => {
     const api = createFixtureApi()
     const created = await api.sessions.create(req({}))
     if (!created.result.ok) throw new Error('create failed')
@@ -335,7 +337,7 @@ describe('createFixtureApi', () => {
       && frame.key === 'contextBreakdown'
       && (frame.value as { messageTokens?: number }).messageTokens! > 0)).toBe(true)
     const finalize = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event' && f.event.type === 'assistant/message')
-    expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
+    expect(JSON.stringify(finalize?.event.data)).toContain('(interrupted)')
     // Idle cancel: no replay in flight, must not explode; running flips false.
     const idleCancel = await api.sessions.cancel(req({ sessionId: id }))
     expect(idleCancel.result).toMatchObject({ ok: true })
@@ -374,7 +376,7 @@ describe('createFixtureApi', () => {
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
     // Projection baseline frames follow subscribed (domain units + token usage).
-    expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
+    expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture history session' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
     expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'permissions' })
     expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
@@ -915,7 +917,7 @@ describe('createFixtureApi', () => {
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
       expect(seen.some(f => f.type === 'session/event' && (f.event as { type: string }).type === 'llm/retry')).toBe(true)
-      expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('重试后的完整回复'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('Complete reply after retry'))).toBe(true)
       expect(seen.some(f => f.type === 'session/event'
         && f.event.type === 'turn/end'
         && f.event.data.reason.kind === 'aborted')).toBe(true)
@@ -979,7 +981,7 @@ describe('createFixtureApi', () => {
           ? [frame.event.data.chunk.text]
           : []
       ))
-      expect(deltas).toEqual(['推理', '推理', `\n${marker}`])
+      expect(deltas).toEqual(['Reasoning', 'Reasoning', `\n${marker}`])
     } finally {
       abort.abort()
       vi.useRealTimers()

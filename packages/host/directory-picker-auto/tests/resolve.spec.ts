@@ -29,6 +29,13 @@ describe('resolveDirectoryPickerBackend', () => {
     expect(resolveDirectoryPickerBackend({ ...attended, env: { SSH_TTY: '/dev/pts/3' } })).toBe('browse')
   })
 
+  it('resolves browse when a proxy serves the GUI at a loopback-equivalent remote origin', () => {
+    expect(resolveDirectoryPickerBackend({ ...attended, env: { DSH_WEB_LOOPBACK_ORIGINS: 'dsh.example.ts.net' } })).toBe('browse')
+    expect(resolveDirectoryPickerBackend({
+      ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: ':0', DSH_WEB_LOOPBACK_ORIGINS: 'dsh.example.ts.net' },
+    })).toBe('browse')
+  })
+
   it('requires a display session and a chooser binary on linux', () => {
     const linux: DirectoryPickerHostFacts = { ...attended, platform: 'linux', linuxChooser: true }
     expect(resolveDirectoryPickerBackend(linux)).toBe('browse')
@@ -43,7 +50,7 @@ describe('resolveDirectoryPickerBackend', () => {
   })
 
   it('treats blank env exports as unset', () => {
-    expect(resolveDirectoryPickerBackend({ ...attended, env: { SSH_CONNECTION: '', SSH_TTY: '' } })).toBe('native')
+    expect(resolveDirectoryPickerBackend({ ...attended, env: { SSH_CONNECTION: '', SSH_TTY: '', DSH_WEB_LOOPBACK_ORIGINS: '' } })).toBe('native')
     expect(resolveDirectoryPickerBackend({
       ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: '', WAYLAND_DISPLAY: '' },
     })).toBe('browse')

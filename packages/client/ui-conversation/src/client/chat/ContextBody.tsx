@@ -257,6 +257,7 @@ export function InstructionsBody({ content, source, t }: {
         {changes.map(change => (
           <li key={change.path} className={css.file} title={change.digest}>
             <span className={css.filePath}>{change.path}</span>
+            {' '}
             <span className={css.fileAction}>
               {t(instructionAction(change.action, baseline))}
             </span>

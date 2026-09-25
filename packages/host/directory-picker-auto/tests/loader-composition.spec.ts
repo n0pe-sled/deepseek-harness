@@ -151,6 +151,7 @@ function stubAttendedHost(): void {
   vi.stubEnv('PATH', fakeBin)
   vi.stubEnv('SSH_CONNECTION', '')
   vi.stubEnv('SSH_TTY', '')
+  vi.stubEnv('DSH_WEB_LOOPBACK_ORIGINS', '')
   vi.stubEnv('DISPLAY', ':0')
 }
 
@@ -198,6 +199,19 @@ describe('real Loader composition', () => {
   it('mounts the browse backend under an SSH launch', { timeout: 60_000 }, async () => {
     stubAttendedHost()
     vi.stubEnv('SSH_CONNECTION', '10.0.0.2 55 10.0.0.9 22')
+    const { ctx } = await loadComposition('127.0.0.1')
+
+    expect(entryNames(ctx)).toContain(BROWSE)
+    expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
+    expect(entryNames(ctx)).not.toContain(NATIVE)
+    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
+    const picker = ctx.get('directoryPicker') as DirectoryPicker
+    expect(picker.capability().kind).toBe('browse')
+  })
+
+  it('mounts the browse backend when a loopback-equivalent remote origin is declared', { timeout: 60_000 }, async () => {
+    stubAttendedHost()
+    vi.stubEnv('DSH_WEB_LOOPBACK_ORIGINS', 'dsh.example.ts.net')
     const { ctx } = await loadComposition('127.0.0.1')
 
     expect(entryNames(ctx)).toContain(BROWSE)

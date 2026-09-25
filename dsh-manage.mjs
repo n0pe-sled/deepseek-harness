@@ -16,46 +16,25 @@
  *   --all       select everything non-interactively
  *   --list      print discovered plugins and skills, then exit
  *   --dry-run   show what would change without writing anything
- *   --setup     first-run bootstrap after a fresh clone; then exit
  *   --install   build this checkout and install its launchers in ~/.local/bin
  */
 
 import { execFileSync } from 'node:child_process'
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync,
-  symlinkSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-/**
- * The checkout this script belongs to. `realpathSync` matters here: `--install`
- * symlinks this file into `~/.local/bin/dsh-manage`, so `import.meta.url` on an
- * installed copy resolves to the symlink and would derive the root from the
- * link's directory instead of the checkout.
- */
-const CHECKOUT = dirname(realpathSync(fileURLToPath(import.meta.url)))
-
 const DSH_HOME = resolve(process.env.DSH_HOME ?? '/opt/deepseek/deepseek-harness-data')
-const PLUGINS_REPO = resolve(process.env.DSH_PLUGINS_REPO ?? join(CHECKOUT, 'plugins'))
-const SKILLS_REPO = resolve(process.env.DSH_SKILLS_REPO ?? join(CHECKOUT, 'skills'))
+const PLUGINS_REPO = resolve(process.env.DSH_PLUGINS_REPO ?? '/opt/deepseek/deepseek-harness-plugins')
+const SKILLS_REPO = resolve(process.env.DSH_SKILLS_REPO ?? '/opt/deepseek/deepseek-harness-skills')
 /** The dsh installation anchor used to compute the dependency closure for out-of-tree plugins. */
-const INSTALL_ANCHOR = resolve(process.env.DSH_INSTALL_ANCHOR ?? join(CHECKOUT, 'apps', 'cli', 'package.json'))
-const HARNESS_REPO = resolve(process.env.DSH_HARNESS_REPO ?? CHECKOUT)
+const INSTALL_ANCHOR = resolve(process.env.DSH_INSTALL_ANCHOR ?? '/opt/deepseek/deepseek-harness/apps/cli/package.json')
+const HARNESS_REPO = resolve(process.env.DSH_HARNESS_REPO ?? join(dirname(INSTALL_ANCHOR), '..', '..'))
 const USER_BIN = resolve(process.env.DSH_BIN_DIR ?? join(process.env.HOME ?? '', '.local', 'bin'))
-
-/** The platform/arch a plugin's build output was produced for, e.g. `darwin-arm64`. */
-const BUILD_TARGET = `${process.platform}-${process.arch}`
-
-/**
- * Stamp file written into each plugin's `lib/` after a build. Its presence and
- * value record which platform/arch produced the committed-or-checkout output,
- * so a plugin built on another machine (a Linux CI, a Docker image) is
- * rebuilt locally before use. `lib/` itself stays out of version control.
- */
-const BUILD_STAMP = '.dsh-build-target'
 
 /** Profile bundle rows the CLI ships for the web profile; kept ahead of user-selected plugins. */
 const BASE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
@@ -70,15 +49,9 @@ const { values } = parseArgs({
     list: { type: 'boolean', default: false },
     'dry-run': { type: 'boolean', default: false },
     'ensure-deps': { type: 'boolean', default: false },
-    setup: { type: 'boolean', default: false },
     install: { type: 'boolean', default: false },
     plugins: { type: 'string', default: '' },
     skills: { type: 'string', default: '' },
-    'disable-plugins': { type: 'string', default: '' },
-    'disable-skills': { type: 'string', default: '' },
-    rebuild: { type: 'boolean', default: true },
-    'no-rebuild': { type: 'boolean', default: false },
-    'rebuild-plugins': { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
   },
   allowPositionals: false,
@@ -92,20 +65,10 @@ Options:
   --all               select all plugins and skills without the TUI
   --plugins <names>   comma-separated plugin names to enable (others are uninstalled); no TUI
   --skills <names>    comma-separated skill names to enable (others are uninstalled); no TUI
-  --disable-plugins <names>  comma-separated plugin names to disable; no TUI
-  --disable-skills <names>   comma-separated skill names to disable; no TUI
   --list              list discovered plugins and skills and exit
   --ensure-deps       mirror the dsh installation's dependency closure into the
                       plugins repo node_modules so out-of-tree plugins resolve
                       @deepseek-ai/* (idempotent, no TUI, no profile writes)
-  --[no-]rebuild      rebuild selected plugins whose lib/ is missing or was
-                      built for another platform/arch (default: enabled); each
-                      build records the target in lib/${BUILD_STAMP}
-  --rebuild-plugins   force a rebuild of every selected plugin, ignoring stamps
-  --setup             first-run bootstrap after a fresh clone: initialize the
-                      plugin and skill submodules, install and build the harness,
-                      mirror the dependency closure, then build every discovered
-                      plugin (no TUI, no profile writes)
   --install           build the checked-out harness and install dsh plus
                       dsh-manage into ~/.local/bin
   --dry-run           show what would change without writing anything
@@ -113,13 +76,11 @@ Options:
 
 Environment:
   DSH_HOME            Harness home (default /opt/deepseek/deepseek-harness-data)
-  DSH_PLUGINS_REPO    plugins repo (default <checkout>/plugins)
-  DSH_SKILLS_REPO     skills repo (default <checkout>/skills)
-  DSH_INSTALL_ANCHOR  dsh app package.json (default <checkout>/apps/cli/package.json)
-  DSH_HARNESS_REPO    harness root (default <checkout>; inferred from DSH_INSTALL_ANCHOR when set)
+  DSH_PLUGINS_REPO    plugins repo (default /opt/deepseek/deepseek-harness-plugins)
+  DSH_SKILLS_REPO     skills repo (default /opt/deepseek/deepseek-harness-skills)
+  DSH_INSTALL_ANCHOR  dsh app package.json (default …/deepseek-harness/apps/cli/package.json)
+  DSH_HARNESS_REPO    checked-out harness root inferred from DSH_INSTALL_ANCHOR
   DSH_BIN_DIR         command install directory (default ~/.local/bin)
-
-  <checkout> is the directory holding this script, resolved through symlinks.
 `)
   process.exit(0)
 }
@@ -197,121 +158,9 @@ function ensureDependencyMirror() {
   return { created, repointed, total: links.size }
 }
 
-/** The platform/arch a plugin's `lib/` was built for, or undefined when unstamped or unbuilt. */
-function pluginBuildTarget(plugin) {
-  const libDir = join(plugin.dir, 'lib')
-  const stamp = join(libDir, BUILD_STAMP)
-  if (!existsSync(stamp)) return undefined
-  return readFileSync(stamp, 'utf8').trim()
-}
-
-/** Whether a plugin's build output exists and was produced for this platform/arch. */
-function pluginNeedsBuild(plugin) {
-  if (!existsSync(join(plugin.dir, 'lib'))) return 'missing'
-  return pluginBuildTarget(plugin) === BUILD_TARGET ? false : 'stale'
-}
-
-/** Write the current platform/arch stamp into a freshly built plugin's `lib/`. */
-function stampBuild(plugin) {
-  const libDir = join(plugin.dir, 'lib')
-  mkdirSync(libDir, { recursive: true })
-  writeFileSync(join(libDir, BUILD_STAMP), `${BUILD_TARGET}\n`)
-}
-
-/** Ensure a plugin has its own node_modules before building (pnpm install when absent). */
-function ensurePluginDeps(plugin) {
-  if (existsSync(join(plugin.dir, 'node_modules'))) return
-  process.stdout.write(`  installing dependencies for ${basename(plugin.dir)}\n`)
-  execFileSync('pnpm', ['install'], { cwd: plugin.dir, stdio: 'inherit' })
-}
-
-/**
- * Rebuild every selected plugin whose `lib/` is missing or was built for a
- * different platform/arch. `lib/` is not version-controlled, so a fresh clone
- * or a checkout carried over from a Linux host arrives either unbuilt or
- * stamped with the producing host; both are rebuilt here before dsh loads them.
- * @param selected - chosen plugin descriptors (from {@link discoverPlugins}).
- * @param options - `dryRun` reports without building; `force` rebuilds unconditionally.
- * @returns counts of rebuilt and skipped plugins.
- */
-function rebuildPlugins(selected, options) {
-  let rebuilt = 0
-  let skipped = 0
-  for (const plugin of selected) {
-    const reason = options.force ? 'forced' : pluginNeedsBuild(plugin)
-    if (reason === false) {
-      skipped++
-      continue
-    }
-    if (options.dryRun) {
-      process.stdout.write(`  would rebuild ${basename(plugin.dir)} (${reason})\n`)
-      continue
-    }
-    process.stdout.write(`  rebuilding ${basename(plugin.dir)} (${reason}; target ${BUILD_TARGET})\n`)
-    ensurePluginDeps(plugin)
-    try {
-      execFileSync('pnpm', ['run', 'build'], { cwd: plugin.dir, stdio: 'inherit' })
-      stampBuild(plugin)
-      rebuilt++
-    } catch (error) {
-      process.stderr.write(`dsh-manage: build failed for ${basename(plugin.dir)}: ${String(error)}\n`)
-      process.exitCode = 1
-    }
-  }
-  return { rebuilt, skipped }
-}
-
 /** Quote one value for a generated POSIX shell launcher. */
 function shellQuote(value) {
   return `'${value.replaceAll("'", `'"'"'`)}'`
-}
-
-/**
- * First-run bootstrap for a fresh clone of this checkout.
- *
- * Submodule initialization comes first because everything after it reads the
- * plugin and skill directories: the dependency mirror needs the plugin
- * manifests, and the build needs the plugin sources. A clone made without
- * `--recurse-submodules` arrives with those directories empty, so the
- * initializer is what makes `git clone` plus this command equivalent to a
- * recursive clone.
- *
- * Nothing built is version-controlled: the harness `lib/` is gitignored and
- * each plugin builds its own `lib/` locally, so both installs and both builds
- * happen here rather than arriving with the clone.
- */
-function setupCheckout() {
-  process.stdout.write(`initializing submodules in ${CHECKOUT}\n`)
-  try {
-    execFileSync('git', ['-C', CHECKOUT, 'submodule', 'update', '--init', '--recursive'], { stdio: 'inherit' })
-  } catch (error) {
-    process.stderr.write(`dsh-manage: submodule init failed: ${String(error)}\n`)
-    process.exitCode = 1
-  }
-
-  process.stdout.write(`installing harness dependencies in ${CHECKOUT}\n`)
-  try {
-    execFileSync('pnpm', ['install'], { cwd: CHECKOUT, stdio: 'inherit' })
-  } catch (error) {
-    process.stderr.write(`dsh-manage: pnpm install failed: ${String(error)}\n`)
-    process.exitCode = 1
-  }
-
-  process.stdout.write(`building the harness\n`)
-  try {
-    execFileSync('pnpm', ['run', 'build'], { cwd: CHECKOUT, stdio: 'inherit' })
-  } catch (error) {
-    process.stderr.write(`dsh-manage: harness build failed: ${String(error)}\n`)
-    process.exitCode = 1
-  }
-
-  ensureDependencyMirror()
-
-  const plugins = discoverPlugins()
-  process.stdout.write(`building ${plugins.length} discovered plugin(s)\n`)
-  const { rebuilt, skipped } = rebuildPlugins(plugins, { dryRun: false, force: false })
-  process.stdout.write(`  plugin builds: ${rebuilt} rebuilt, ${skipped} current (target ${BUILD_TARGET})\n`)
-  process.stdout.write(`\nsetup complete. next: dsh-manage --all (or run without arguments to pick plugins)\n`)
 }
 
 /** Build this checkout and install stable launchers in the user's command directory. */
@@ -577,62 +426,6 @@ async function pick(entries) {
       resolveApply()
     }
 
-    let inputBuffer = ''
-
-    const handleChar = (ch) => {
-      if (ch === '\u0003' || ch === 'q') {
-        done = true
-        cleanup()
-        process.exitCode = 130
-        resolveApply(false)
-        return
-      }
-      if (ch === '\r' || ch === '\n') {
-        apply()
-        return
-      }
-      if (ch === ' ') {
-        const entry = visibleEntries()[cursor]
-        if (entry !== undefined) chosen.set(entry.name, !chosen.get(entry.name))
-        render()
-      } else if (ch === 'a') {
-        const tabEntries = entries.filter(entry => entry.kind === kind)
-        const allOn = tabEntries.every(entry => chosen.get(entry.name))
-        for (const entry of tabEntries) chosen.set(entry.name, !allOn)
-        render()
-      } else if (ch === '/') {
-        filtering = true
-        filter = ''
-        render()
-      } else if (ch === '\t') {
-        switchKind(kind === 'plugin' ? 'skill' : 'plugin')
-        render()
-      } else if (ch === 'j' || ch === '\u000e') {
-        const count = visibleEntries().length
-        if (count > 0) cursor = (cursor + 1) % count
-        render()
-      } else if (ch === 'k' || ch === '\u0010') {
-        const count = visibleEntries().length
-        if (count > 0) cursor = (cursor - 1 + count) % count
-        render()
-      }
-    }
-
-    const handleEscape = (seq) => {
-      if (seq === '\x1b[A' || seq === '\x1bOA') {
-        const count = visibleEntries().length
-        if (count > 0) cursor = (cursor - 1 + count) % count
-        render()
-      } else if (seq === '\x1b[B' || seq === '\x1bOB') {
-        const count = visibleEntries().length
-        if (count > 0) cursor = (cursor + 1) % count
-        render()
-      } else if (seq === '\x1b[C' || seq === '\x1bOC' || seq === '\x1b[D' || seq === '\x1bOD') {
-        switchKind(kind === 'plugin' ? 'skill' : 'plugin')
-        render()
-      }
-    }
-
     process.stdin.on('data', (chunk) => {
       if (done) return
       const s = chunk.toString()
@@ -646,41 +439,56 @@ async function pick(entries) {
         render()
         return
       }
-      // Escape sequences may arrive split across chunks (tmux/screen/ssh) or
-      // several at once; parse incrementally so every keypress registers.
-      inputBuffer += s
-      let index = 0
-      while (index < inputBuffer.length) {
-        if (done) break
-        const ch = inputBuffer[index]
-        if (ch !== '\x1b') {
-          handleChar(ch)
-          index++
-          continue
-        }
-        const rest = inputBuffer.slice(index)
-        if (rest.length < 2) break
-        let seq = null
-        let len = 0
-        const prefix = rest[1]
-        if (prefix === '[') {
-          let end = 2
-          while (end < rest.length && rest[end] >= ' ' && rest[end] <= '?') end++
-          if (end >= rest.length) break
-          seq = rest.slice(0, end + 1)
-          len = end + 1
-        } else if (prefix === 'O') {
-          if (rest.length < 3) break
-          seq = rest.slice(0, 3)
-          len = 3
-        } else {
-          seq = '\x1b'
-          len = 1
-        }
-        handleEscape(seq)
-        index += len
+      if (s.includes('\x1b[A')) {
+        const count = visibleEntries().length
+        if (count > 0) cursor = (cursor - 1 + count) % count
+        render()
+      } else if (s.includes('\x1b[B')) {
+        const count = visibleEntries().length
+        if (count > 0) cursor = (cursor + 1) % count
+        render()
+      } else if (s.includes('\x1b[C') || s.includes('\x1b[D')) {
+        switchKind(kind === 'plugin' ? 'skill' : 'plugin')
+        render()
       }
-      inputBuffer = inputBuffer.slice(index)
+      for (const ch of s) {
+        if (ch === '\u0003' || ch === 'q') {
+          done = true
+          cleanup()
+          process.exitCode = 130
+          resolveApply(false)
+          return
+        }
+        if (ch === '\r' || ch === '\n') {
+          apply()
+          return
+        }
+        if (ch === ' ') {
+          const entry = visibleEntries()[cursor]
+          if (entry !== undefined) chosen.set(entry.name, !chosen.get(entry.name))
+          render()
+        } else if (ch === 'a') {
+          const tabEntries = entries.filter(entry => entry.kind === kind)
+          const allOn = tabEntries.every(entry => chosen.get(entry.name))
+          for (const entry of tabEntries) chosen.set(entry.name, !allOn)
+          render()
+        } else if (ch === '/' ) {
+          filtering = true
+          filter = ''
+          render()
+        } else if (ch === '\t') {
+          switchKind(kind === 'plugin' ? 'skill' : 'plugin')
+          render()
+        } else if (ch === 'j' || ch === '\u000e') {
+          const count = visibleEntries().length
+          if (count > 0) cursor = (cursor + 1) % count
+          render()
+        } else if (ch === 'k' || ch === '\u0010') {
+          const count = visibleEntries().length
+          if (count > 0) cursor = (cursor - 1 + count) % count
+          render()
+        }
+      }
     })
   })
 }
@@ -700,21 +508,11 @@ const chosen = new Map(entries.map(entry => {
 
 const onlyPlugins = values.plugins.split(',').map(name => name.trim()).filter(Boolean)
 const onlySkills = values.skills.split(',').map(name => name.trim()).filter(Boolean)
-const disablePlugins = values['disable-plugins'].split(',').map(name => name.trim()).filter(Boolean)
-const disableSkills = values['disable-skills'].split(',').map(name => name.trim()).filter(Boolean)
 const hasAllowlist = onlyPlugins.length > 0 || onlySkills.length > 0
-const hasDisablelist = disablePlugins.length > 0 || disableSkills.length > 0
-const hasSelection = hasAllowlist || hasDisablelist
-if (hasSelection) {
+if (hasAllowlist) {
   for (const entry of entries) {
-    const isPlugin = entry.kind === 'plugin'
-    // An allowlist resets every entry (unlisted ones are uninstalled); a
-    // disablelist only turns listed entries off, leaving the rest as chosen.
-    let value = hasAllowlist
-      ? (isPlugin ? onlyPlugins.includes(entry.name) : onlySkills.includes(entry.name))
-      : chosen.get(entry.name)
-    if (isPlugin ? disablePlugins.includes(entry.name) : disableSkills.includes(entry.name)) value = false
-    chosen.set(entry.name, value)
+    const allow = entry.kind === 'plugin' ? onlyPlugins.includes(entry.name) : onlySkills.includes(entry.name)
+    chosen.set(entry.name, allow)
   }
 }
 
@@ -731,17 +529,12 @@ if (values['ensure-deps']) {
   process.exit(0)
 }
 
-if (values.setup) {
-  setupCheckout()
-  process.exit(process.exitCode ?? 0)
-}
-
 if (values.install) {
   installLocalHarness()
   process.exit(0)
 }
 
-const interactive = process.stdin.isTTY === true && !values.all && !hasSelection
+const interactive = process.stdin.isTTY === true && !values.all && !hasAllowlist
 if (interactive) {
   const apply = await pick(entries)
   if (apply === false) process.exit(130)
@@ -756,17 +549,6 @@ const manifestChanged = JSON.stringify(newManifest) !== JSON.stringify(manifest)
 process.stdout.write(`\n${values.profile} profile sync:\n`)
 process.stdout.write(`  plugins: ${chosenPlugins.length}/${plugins.length} enabled\n`)
 process.stdout.write(`  skills:  ${chosenSkills.length}/${skills.length} enabled\n`)
-
-// Rebuild before the profile relinks, so pnpm install and dsh both see native
-// output. `--rebuild-plugins` forces; `--no-rebuild` opts out entirely.
-const rebuild = values['no-rebuild'] ? false : values.rebuild
-if (rebuild && chosenPlugins.length > 0) {
-  const { rebuilt, skipped } = rebuildPlugins(chosenPlugins, {
-    dryRun,
-    force: values['rebuild-plugins'],
-  })
-  process.stdout.write(`  plugin builds: ${rebuilt} rebuilt, ${skipped} current (target ${BUILD_TARGET})\n`)
-}
 
 if (manifestChanged) {
   if (dryRun) {

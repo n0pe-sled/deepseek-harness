@@ -88,6 +88,22 @@ function launchedThroughSsh(ctx: Context): boolean {
   })
 }
 
+/**
+ * Page origins the browser should treat as loopback-equivalent, from the
+ * comma-separated `DSH_WEB_LOOPBACK_ORIGINS` launch variable. A deployment
+ * serving the GUI from such an origin does so behind a proxy that supplies the
+ * loopback Host dsh's privileged methods require, so the browser may offer the
+ * same settings and host controls as a local page. Empty by default.
+ * @param ctx - plugin context carrying the launch environment.
+ * @returns lowercased origin hostnames.
+ */
+function resolveBrowserLoopbackOrigins(ctx: Context): string[] {
+  const raw = launchEnvironmentOf(ctx).getFrom('DSH_WEB_LOOPBACK_ORIGINS', ['process'])?.value ?? ''
+  return raw.split(',')
+    .map(origin => origin.trim().toLowerCase())
+    .filter(origin => origin !== '')
+}
+
 const BROWSER_OPENER_MODULE = import.meta.resolve('open')
 
 const BROWSER_OPENER_PROGRAM = `
@@ -230,6 +246,13 @@ export function apply(ctx: Context, config: Config): void {
   const handoffBrowser = config.openBrowser && !launchedThroughSsh(ctx)
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
+  // Declare loopback-equivalent page origins to the browser before the shell reads them.
+  const browserLoopbackOrigins = resolveBrowserLoopbackOrigins(ctx)
+  if (browserLoopbackOrigins.length > 0) {
+    ctx.on('webserver/index-inject', (table) => {
+      table.push({ kind: 'global', name: '__DSH_LOOPBACK_ORIGINS__', value: browserLoopbackOrigins })
+    })
+  }
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {

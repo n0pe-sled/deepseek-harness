@@ -101,10 +101,12 @@ function ModelRetryItem({ node, active, t }: {
       <div className={css.retryDetails}>
         <div>
           <span className={css.retryDetailLabel}>{t('message.retry.delay')}</span>
+          {' '}
           {Math.round(node.delayMs)}ms
         </div>
         <div>
           <span className={css.retryDetailLabel}>{t('message.retry.failure')}</span>
+          {' '}
           {node.failure.message}
         </div>
       </div>
@@ -122,6 +124,7 @@ function TurnErrorItem({ node, t }: {
       <StateDot state="error" className={css.turnErrorDot} />
       <div className={css.turnErrorCopy}>
         <span className={css.turnErrorTitle}>{t('message.turnError')}</span>
+        {' '}
         <span className={css.turnErrorMessage}>{node.message}</span>
       </div>
       {node.code !== undefined && <code className={css.turnErrorCode}>{node.code}</code>}
@@ -138,6 +141,7 @@ function TurnMaxTokensItem({ t }: {
       <StateDot state="warning" className={css.turnErrorDot} />
       <div className={css.turnErrorCopy}>
         <span className={css.maxTokensTitle}>{t('message.maxTokens')}</span>
+        {' '}
         <span className={css.turnErrorMessage}>{t('message.maxTokens.hint')}</span>
       </div>
     </div>
