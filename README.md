@@ -76,6 +76,78 @@ the bundled closure, and with no bundled closure present — a from-source dev r
 before staging — adding a local instance reports that clearly instead of
 silently falling back to PATH.
 
+### Remote hosts: shipping the harness over SSH
+
+Adding an **SSH remote** with *Ship this app's harness to the host* checked turns
+the remote into a place this app runs its own harness, the way VS Code Remote-SSH
+does. The app detects the host, ships the matching closure, starts it there, and
+tunnels its loopback port back:
+
+```bash
+pnpm stage:harness:linux   # closure for linux-x64 glibc remotes
+pnpm dist                  # packages resources/harness* into the .dmg
+```
+
+What the sequence does, in order:
+
+1. **Detect** one ssh command reporting `uname`, `$HOME`, `ldd`, the loader,
+   the distribution, `node --version`, free space, and whether the closure's
+   parent directory is writable.
+2. **Preflight**, refusing before anything is transferred: musl hosts (the native
+   addons are glibc builds and no musl closure is staged), a missing or
+   unsupported Node, a read-only or too-small target directory. The refusal names
+   the cause.
+3. **Select** the closure whose `version-revision-platform-arch-libc` matches the
+   host. A directory under that key exists on the remote only because a completed
+   extraction renamed it there, so its presence is the cache and a reconnect
+   costs one ssh round trip.
+4. **Ship** with `tar cz | ssh host '<extract>'`. Extraction goes to `<key>.tmp`
+   and is renamed into place only after `lib/bin.js` and `harness-meta.json` both
+   exist, so an interrupted transfer can never be mistaken for a valid cache. The
+   stream excludes macOS `._*` sidecars, which would otherwise land in the temp
+   directory and defeat that check.
+5. **Launch** detached (`setsid`, all three streams redirected) with the remote's
+   own Node, and read the port off the readiness line. The launcher records a PID
+   file, so a second connect adopts the running server instead of starting
+   another.
+6. **Tunnel** that discovered port to a local loopback port for the GUI.
+
+Reconnect reuses a live server. *Stop remote server* stops it; removing the
+instance offers to delete the closure from the host, so nothing accumulates
+unseen. The instance row shows the running harness **revision**, which is the
+only thing that distinguishes our fork from upstream: both publish as
+`@deepseek-ai/dsh` and upstream has published the fork's exact version string.
+
+**Nothing in this path ever installs from npm.** There is no specifier that
+identifies the fork — `latest`, a caret range, and an exact pin all resolve to
+upstream code — so a registry fallback would silently run someone else's build
+under a version number that looks right. `tests/unit/remote-provision.integration.test.ts`
+asserts that no provisioning source names a registry at all.
+
+Requirements and limits, stated plainly:
+
+- **Key-based ssh is required.** Every ssh call runs with `BatchMode=yes`, so a
+  missing key fails immediately rather than prompting into a GUI with no terminal.
+- **`node` must be on the remote's PATH** (`^22.19.0 || >=24.0.0`). The app ships
+  no remote Node runtime. The closure itself is ~300MB on disk, ~40MB compressed.
+- **glibc only.** Alpine and other musl hosts are refused with that reason.
+- **The Landlock sandbox is unavailable on shipped closures.** That launcher is a
+  static-musl C binary built per Linux architecture; it lives in
+  `native/landlock-run`, no cross-toolchain exists, and it is not in this
+  checkout, so a closure staged here ships that package without its binary. The
+  harness treats a missing launcher as `unusable` and boots anyway, so this costs
+  the sandbox, not the session.
+- The remote binds `127.0.0.1` only. The tunnel is the supported posture; the
+  harness rejects `--host 0.0.0.0` by design.
+
+To exercise the live path against a real host:
+
+```bash
+DSH_REMOTE_PROBE=1 DSH_PROBE_HOST=127.0.0.1 DSH_PROBE_PORT=2222 \
+DSH_PROBE_USER=root DSH_PROBE_KEY=/path/to/key \
+  pnpm vitest run tests/unit/remote-provision.integration.test.ts
+```
+
 ### Releases
 
 `.github/workflows/release-macos.yml` builds the `.dmg` on a macOS runner: it
@@ -119,13 +191,27 @@ xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
 
 - The bundled closure is ~264 MB on disk, which puts the shipped `.dmg` at
   175 MB (166 MiB). Almost all of it is the harness and its 180-odd
-  dependencies, not the Electron shell.
+  dependencies, not the Electron shell. Each additional staged closure for a
+  remote target adds a similar amount to the `.dmg`: the linux-x64 closure is
+  241 MB on disk and ~40 MB compressed, so shipping it costs roughly another
+  40 MB of `.dmg`. That is the deliberate trade for provisioning working offline
+  against infrastructure the user controls, rather than fetching a closure from a
+  registry.
 - electron-builder refuses any copy whose *relative* root is named
   `node_modules` (`app-builder-lib/out/util/filter.js`), which silently dropped
   the whole closure when `extraFiles.from` pointed straight at
-  `resources/harness`. It points at `resources` with a `harness/**/*` filter so
-  the relative path is `harness/node_modules`.
+  `resources/harness`. It points at `resources` with `harness/**/*` and
+  `harness-*/**/*` filters so the relative paths are `harness/node_modules` and
+  `harness-linux-x64/node_modules`. The second filter is what makes a provisioned
+  remote work in a packaged build; without it the closure is absent from the
+  `.dmg` and adding a provisioned instance reports that no closure is staged.
 - `.gitignore` keeps `node_modules` **root-anchored** (`/node_modules`) for the
   same class of reason: a bare `node_modules/` pattern matches at every depth
   and made electron-builder pack a harness with no dependencies.
+- Staging for a foreign target uses a throwaway git worktree rather than editing
+  the caller's checkout, and seeds it with build outputs, because `lib/` and
+  `dist/` are gitignored and `pnpm deploy` copies packages through their publish
+  `files` field. `native/landlock-run` is the sharp edge here: it declares a
+  nested workspace, is excluded from the build globs, and is not rebuilt by
+  `--build`, so its `lib/` exists only in a checkout someone has built by hand.
 

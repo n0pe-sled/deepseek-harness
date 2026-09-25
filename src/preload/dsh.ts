@@ -6,7 +6,7 @@
  * host UI with newer methods keeps working without shipping harness packages.
  */
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type AppTheme, type DshStreamOpenResult, type StreamKind } from '../shared/ipc.ts'
+import { IPC, type AppTheme, type ConnectionLogSnapshot, type DshConnectionApi, type DshStreamOpenResult, type StreamKind } from '../shared/ipc.ts'
 
 interface RpcResponseLike {
   rpcId: string
@@ -194,8 +194,29 @@ Object.defineProperty(globalThis, '__DSH_TRANSPORT__', {
   configurable: false,
 })
 
-// ---- Shell chrome: match the dsh theme + provide a draggable top edge ----
+// ---- In-tab connection view ----
+// The content view shows this app's own connection page while an instance is
+// starting and after it fails, instead of a blank pane. That page runs in this
+// content view (not the shell), so it cannot use window.dshManager; it gets the
+// one API it needs here.
 
+const connectionApi: DshConnectionApi = {
+  get: (instanceId) => ipcRenderer.invoke(IPC.connectionGet, instanceId),
+  retry: (instanceId) => ipcRenderer.invoke(IPC.connectionRetry, instanceId),
+  onUpdate: (cb) => {
+    const handler = (_e: IpcRendererEvent, snapshot: ConnectionLogSnapshot): void => cb(snapshot)
+    ipcRenderer.on(IPC.connectionUpdate, handler)
+    return () => ipcRenderer.removeListener(IPC.connectionUpdate, handler)
+  },
+}
+
+Object.defineProperty(globalThis, 'dshConnection', {
+  value: connectionApi,
+  writable: false,
+  configurable: false,
+})
+
+// ---- Shell chrome: match the dsh theme + provide a draggable top edge ----
 /** Height (px) of the transparent draggable strip over the content pane. */
 const TITLEBAR_HEIGHT = 14
 

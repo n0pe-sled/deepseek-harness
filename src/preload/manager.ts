@@ -4,7 +4,7 @@
  */
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/ipc.ts'
-import type { AppTheme } from '../shared/ipc.ts'
+import type { AppTheme, ConnectionLogSnapshot } from '../shared/ipc.ts'
 import type { AddLocalInput, AddRawInput, AddSshInput, InstanceView } from '../shared/instance.ts'
 import type { DshManagerApi } from '../shared/manager.ts'
 
@@ -19,6 +19,12 @@ const api: DshManagerApi = {
   active: () => ipcRenderer.invoke(IPC.managerActive),
   pickDsh: () => ipcRenderer.invoke(IPC.managerPickDsh),
   openAdd: (kind) => ipcRenderer.invoke(IPC.managerOpenAdd, kind),
+  getLog: (id) => ipcRenderer.invoke(IPC.managerGetLog, id),
+  openLog: (id) => ipcRenderer.send(IPC.managerOpenLog, id),
+  // The log window knows which instance it is showing from its own URL, the same
+  // way the add modal reads `?add=<kind>`. Main validates the id against the store.
+  logTarget: () => Promise.resolve(new URLSearchParams(window.location.search).get('log') ?? undefined),
+  onLogUpdate: (cb) => subscribe<ConnectionLogSnapshot>(IPC.managerLogUpdate, cb),
   setTopbarVisible: (visible) => ipcRenderer.send(IPC.uiTopbarSet, visible),
   onTopbarChanged: (cb) => subscribe<boolean>(IPC.uiTopbarChanged, cb),
   onUpdate: (cb) => subscribe(IPC.managerUpdate, cb),

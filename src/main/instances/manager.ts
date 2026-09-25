@@ -7,15 +7,25 @@ import type {
   AddLocalInput,
   AddRawInput,
   AddSshInput,
+  HarnessOrigin,
   InstanceConfig,
   InstanceRuntime,
   InstanceView,
+  SshOptions,
 } from '../../shared/instance.ts'
+import { formatTarget } from '../../shared/harness-target.ts'
 import { startLocalDsh, type LocalHandle } from './local.ts'
-import { forwardSshTunnel, type SshTunnelHandle } from './ssh.ts'
+import { resolveBundledHarness } from './bundled.ts'
+import { RemoteProvisioner, type ProvisionResult } from './provision.ts'
+import { remoteClosureDir } from './provision-parse.ts'
+import { forwardSshTunnel, forwardSshTunnelTo, type SshTunnelHandle } from './ssh.ts'
 import { InstanceStore } from './store.ts'
 
 type ManagedHandle = LocalHandle | SshTunnelHandle | { endpoint: string }
+
+/** Lines kept per instance. Enough to hold a full provision, capped so a chatty
+ *  failure cannot grow without bound. */
+const LOG_LIMIT = 500
 
 interface Managed {
   config: InstanceConfig
@@ -35,6 +45,15 @@ export class InstanceManager {
   constructor(
     private readonly store: InstanceStore,
     private readonly probeDescribe: ProbeDescribe,
+    /**
+     * Provisioning hooks, supplied by main. Absent in tests and in builds with
+     * no staged closures, in which case a provisioned instance reports why
+     * rather than silently connecting somewhere else.
+     */
+    private readonly provisioning?: {
+      resourcesDir: string
+      provisioner?: (deps: { resourcesDir: string; log: (line: string) => void }) => RemoteProvisioner
+    },
   ) {}
 
   async load(): Promise<void> {
@@ -63,6 +82,24 @@ export class InstanceManager {
 
   endpointOf(id: string): string | undefined {
     return this.managed.get(id)?.runtime.endpoint
+  }
+
+  /**
+   * The connection log for one instance.
+   *
+   * Kept after a failure rather than cleared, because this is the only place the
+   * reason ends up: a failed start puts a one-line summary on the runtime view and
+   * the detail here. A new attempt clears it, so a reader never sees two attempts
+   * interleaved.
+   */
+  logOf(id: string): string[] {
+    return [...(this.managed.get(id)?.log ?? [])]
+  }
+
+  /** The error text for one instance, when it is in the error state. */
+  errorOf(id: string): string | undefined {
+    const runtime = this.managed.get(id)?.runtime
+    return runtime?.status === 'error' ? runtime.error : undefined
   }
 
   /** The stable loopback content host for one instance (undefined if unknown). */
@@ -148,16 +185,40 @@ export class InstanceManager {
     const { config } = managed
     managed.runtime = { status: 'starting' }
     managed.log = []
+    // Say what is being attempted before doing it. A connect can take seconds
+    // (provisioning takes tens), and a window that stays empty for that long
+    // reads as a hang.
+    this.log(id, `connecting ${config.name} (${describeTarget(config)})`)
     this.emit()
     try {
       let endpoint: string
       let handle: ManagedHandle
       let onExit: ((cb: (code: number | null, signal: NodeJS.Signals | null) => void) => void) | undefined
+      let origin: HarnessOrigin | undefined
+      let revision: string | undefined
       if (config.kind === 'local') {
         const h = await startLocalDsh(config.local ?? {}, (line) => this.log(id, line))
         handle = h
         endpoint = h.endpoint
         onExit = h.onExit
+        const bundled = resolveBundledHarness()
+        if (bundled?.meta !== undefined) {
+          revision = bundled.meta.revision
+          origin = { closureKey: bundled.meta.version, target: bundled.meta.source }
+        }
+      } else if (config.kind === 'ssh' && config.ssh?.provision !== undefined) {
+        const ssh = config.ssh
+        const port = await this.provisionRemote(id, ssh)
+        const h = await forwardSshTunnelTo(ssh, port.remotePort, (line) => this.log(id, line))
+        handle = h
+        endpoint = h.endpoint
+        onExit = h.onExit
+        revision = port.revision
+        origin = {
+          closureKey: port.closureKey,
+          target: formatTarget(port.target),
+          provisioned: true,
+        }
       } else if (config.kind === 'ssh') {
         const h = await forwardSshTunnel(config.ssh ?? { host: '' }, (line) => this.log(id, line))
         handle = h
@@ -169,18 +230,29 @@ export class InstanceManager {
         handle = { endpoint }
       }
       managed.handle = handle
-      managed.runtime = { status: 'running', endpoint }
+      managed.runtime = {
+        status: 'running',
+        endpoint,
+        ...(revision === undefined ? {} : { revision }),
+        ...(origin === undefined ? {} : { origin }),
+      }
       this.emit()
       // Version detail is best-effort; a later reconnect probe refreshes it.
       void this.probe(id, endpoint)
+      this.log(id, `connected: ${endpoint}`)
       onExit?.(() => {
         if (managed.handle !== handle) return
         managed.handle = undefined
-        managed.runtime = { status: 'error', error: 'process exited' }
+        managed.runtime = { status: 'error', error: 'the connection ended unexpectedly' }
+        this.log(id, 'the connection ended unexpectedly')
         this.emit()
       })
     } catch (error) {
-      managed.runtime = { status: 'error', error: error instanceof Error ? error.message : String(error) }
+      const message = error instanceof Error ? error.message : String(error)
+      managed.runtime = { status: 'error', error: message }
+      // The log is where the detail lives, so record the summary here too: a user
+      // reading the log window should not have to look somewhere else for it.
+      this.log(id, `failed: ${message}`)
       this.emit()
     }
   }
@@ -201,11 +273,73 @@ export class InstanceManager {
     }
   }
 
+  /**
+   * Run provisioning for one SSH instance and return what the tunnel needs.
+   *
+   * Kept separate from the SSH branch in {@link start} so the failure mode is
+   * explicit: a provisioning run that cannot proceed throws, and the instance
+   * lands in `error` with the refusal text rather than falling back to
+   * forwarding a port nobody is listening on.
+   */
+  private async provisionRemote(id: string, ssh: SshOptions): Promise<ProvisionResult> {
+    const config = this.provisioning
+    if (config === undefined) {
+      throw new Error('this build cannot provision a remote: no staged harness closure is available')
+    }
+    const provisioner = config.provisioner?.({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
+      ?? new RemoteProvisioner({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
+    return provisioner.prepare(ssh, ssh.provision ?? {})
+  }
+
+  /** Stop the remote harness a provisioned instance started, if any. */
+  async stopRemoteServer(id: string): Promise<void> {
+    const resolved = await this.remoteClosureOf(id)
+    if (resolved === undefined) return
+    await resolved.provisioner.stopRemote(resolved.ssh, resolved.remoteDir)
+    this.emit()
+  }
+
+  /** Remove a provisioned instance's closure from its host. */
+  async uninstallRemote(id: string): Promise<void> {
+    const resolved = await this.remoteClosureOf(id)
+    if (resolved === undefined) return
+    await resolved.provisioner.uninstall(resolved.ssh, resolved.remoteDir)
+    this.emit()
+  }
+
+  /**
+   * Resolve which remote directory one instance's closure occupies.
+   *
+   * Detection runs again rather than being remembered from the last connect:
+   * the remote's own facts decide the target, and a host that changed platform
+   * or lost its closure should produce a real answer instead of a stale path.
+   */
+  private async remoteClosureOf(id: string): Promise<{
+    provisioner: RemoteProvisioner
+    ssh: SshOptions
+    remoteDir: string
+  } | undefined> {
+    const managed = this.managed.get(id)
+    const ssh = managed?.config.ssh
+    const config = this.provisioning
+    if (managed === undefined || ssh?.provision === undefined || config === undefined) return undefined
+    const provisioner = config.provisioner?.({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
+      ?? new RemoteProvisioner({ resourcesDir: config.resourcesDir, log: (line) => this.log(id, line) })
+    const { target, root } = await provisioner.detect(ssh, ssh.provision)
+    const entry = provisioner.selectClosure(target)
+    return { provisioner, ssh, remoteDir: remoteClosureDir(root, entry.key) }
+  }
+
   private log(id: string, line: string): void {
     const managed = this.managed.get(id)
-    if (managed !== undefined) {
-      managed.log.push(line)
-      if (managed.log.length > 200) managed.log.shift()
+    if (managed === undefined) return
+    // One entry per line, timestamped: the log is read after the fact to work out
+    // how long a phase took, and ssh and the harness both emit multi-line chunks.
+    for (const raw of line.split('\n')) {
+      const text = raw.trimEnd()
+      if (text === '') continue
+      managed.log.push(`${new Date().toISOString().slice(11, 19)}  ${text}`)
+      if (managed.log.length > LOG_LIMIT) managed.log.shift()
     }
   }
 
@@ -244,4 +378,18 @@ export function normalizeRawUrl(url: string): string {
   const trimmed = url.trim()
   const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//u.test(trimmed) ? trimmed : `http://${trimmed}`
   return withScheme.replace(/\/$/u, '')
+}
+
+/** One-line description of what a connect will do, for the log's first entry. */
+export function describeTarget(config: InstanceConfig): string {
+  if (config.kind === 'ssh') {
+    const ssh = config.ssh
+    const destination = ssh === undefined
+      ? 'ssh'
+      : `${ssh.user === undefined || ssh.user === '' ? '' : `${ssh.user}@`}${ssh.host}`
+    if (ssh?.provision !== undefined) return `ssh ${destination}, shipping this app's harness`
+    return `ssh ${destination}, forwarding remote port ${String(ssh?.remotePort ?? 3000)}`
+  }
+  if (config.kind === 'local') return 'local dsh process'
+  return `url ${config.rawUrl ?? ''}`
 }

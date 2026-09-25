@@ -14,29 +14,14 @@
  * launcher prepends it before the CLI path.
  */
 import { app } from 'electron'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { BUNDLED_CLI_RELATIVE, readHarnessMeta } from './closure-catalog.ts'
+import type { HarnessMeta } from './closure-catalog.ts'
 
 /** Directory name under `Resources` (packaged) / repo root (development). */
 export const BUNDLED_DIR_NAME = 'harness'
-/** The CLI entry inside the staged closure. */
-export const BUNDLED_CLI_RELATIVE = join('lib', 'bin.js')
-/** Version record written by scripts/stage-harness.mjs. */
-export const BUNDLED_META_RELATIVE = 'harness-meta.json'
-
-/** Version record describing the staged closure. */
-export interface HarnessMeta {
-  /** The pinned `@deepseek-ai/dsh` version this closure was staged from. */
-  version?: string
-  /** Short git revision of the harness checkout it came from. */
-  revision?: string
-  /** The harness workspace path it was staged from. */
-  workspace?: string
-  /** Where the closure came from; retained for older records. */
-  source?: string
-  /** ISO timestamp of the staging run. */
-  stagedAt?: string
-}
+export type { HarnessMeta } from './closure-catalog.ts'
 
 /** A launchable bundled harness: the Electron-as-Node command plus its closure root. */
 export interface BundledHarness {
@@ -100,17 +85,4 @@ export function bundledHarnessArgs(harness: BundledHarness, dshArgs: readonly st
   // --expose-internals first: it is a runtime flag for the embedded Node, and
   // everything after the CLI path belongs to the CLI's own parser.
   return ['--expose-internals', harness.cli, 'web', '--port', '0', '--no-open', ...dshArgs]
-}
-
-function readHarnessMeta(root: string): HarnessMeta | undefined {
-  const file = join(root, BUNDLED_META_RELATIVE)
-  if (!existsSync(file)) return undefined
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
-    if (typeof parsed !== 'object' || parsed === null) return undefined
-    return parsed as HarnessMeta
-  } catch {
-    // A malformed record is informational only; never block a boot over it.
-    return undefined
-  }
 }

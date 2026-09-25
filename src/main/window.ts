@@ -2,8 +2,10 @@
  * AppWindow: one macOS BrowserWindow holding two WebContentsViews — a top bar
  * (session tabs + add buttons) and the dsh content view (custom protocol).
  */
-import { BrowserWindow, WebContentsView } from 'electron'
-import type { AddKind } from '../shared/ipc.ts'
+import { app, BrowserWindow, WebContentsView } from 'electron'
+import { IPC } from '../shared/ipc.ts'
+import type { AddKind, ConnectionLogMessage, ConnectionLogSnapshot } from '../shared/ipc.ts'
+import { APP_VIEW_HOST } from './protocol.ts'
 
 export interface AppWindowOptions {
   managerPreload: string
@@ -33,6 +35,10 @@ export class AppWindow {
   private readonly managerHtml: string
   private topbarVisible = true
   private addModal: BrowserWindow | null = null
+  private logWindow: BrowserWindow | null = null
+  private logWindowTarget: string | undefined
+  private logWindowReady: ((instanceId: string) => void) | undefined
+  private contentReady: (() => void) | undefined
 
   constructor(opts: AppWindowOptions) {
     this.managerPreload = opts.managerPreload
@@ -73,6 +79,10 @@ export class AppWindow {
     this.win.contentView.addChildView(this.topbar)
     this.win.contentView.addChildView(this.content)
     this.content.setVisible(false)
+
+    // A snapshot pushed while the connection page was still loading is lost, and
+    // that is exactly when a fast failure happens. Push one once the page is up.
+    this.content.webContents.on('did-finish-load', () => this.contentReady?.())
 
     void this.topbar.webContents.loadFile(opts.managerHtml).catch(() => undefined)
     this.layout()
@@ -152,6 +162,108 @@ export class AppWindow {
       if (this.addModal === modal) this.addModal = null
     })
     void modal.loadFile(this.managerHtml, { query: { add: kindKey } }).catch(() => undefined)
+  }
+
+  /**
+   * Open the connection-log window for one instance, or focus the one already
+   * showing it.
+   *
+   * Not `modal: true`, unlike the add form: a connect can take tens of seconds
+   * while provisioning, and a modal would block the window the user is watching.
+   * It is a child window so it stays above the shell, and resizable because an
+   * error message and a stack of ssh output need the room.
+   *
+   * One window with a mutable target, rather than one per instance: the log is
+   * read while connecting, and a user comparing two failures does not need two
+   * windows to do it.
+   */
+  openLogWindow(instanceId: string): void {
+    if (this.logWindow !== null && !this.logWindow.isDestroyed()) {
+      this.logWindowTarget = instanceId
+      this.logWindow.focus()
+      // The renderer cannot see a query change on an already-loaded page, so tell
+      // it to re-target instead of reloading and losing its scroll position.
+      this.logWindow.webContents.send(IPC.managerLogUpdate, { retarget: instanceId } satisfies ConnectionLogMessage)
+      return
+    }
+
+    const win = new BrowserWindow({
+      width: 720,
+      height: 460,
+      parent: this.win,
+      show: false,
+      resizable: true,
+      minimizable: true,
+      maximizable: false,
+      fullscreenable: false,
+      autoHideMenuBar: true,
+      title: 'Connection Log',
+      backgroundColor: '#1a1d23',
+      webPreferences: {
+        preload: this.managerPreload,
+        contextIsolation: false,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    })
+    this.logWindow = win
+    this.logWindowTarget = instanceId
+    // A connect can finish before this window has finished loading, so the
+    // snapshots sent while it was loading are lost and the window would sit on
+    // "STARTING" forever. Push one more when the page is actually ready: that is
+    // what makes a failure that already happened visible.
+    win.webContents.on('did-finish-load', () => {
+      const target = this.logWindowTarget
+      if (target !== undefined) this.logWindowReady?.(target)
+    })
+    win.once('ready-to-show', () => {
+      win.show()
+      // Bring it forward: this window exists to be watched, and it is opened by
+      // an action that can take a long time. Opening it behind the main window
+      // would defeat the point.
+      win.focus()
+      app.focus({ steal: true })
+    })
+    win.on('closed', () => {
+      if (this.logWindow === win) {
+        this.logWindow = null
+        this.logWindowTarget = undefined
+      }
+    })
+    void win.loadFile(this.managerHtml, { query: { log: instanceId } }).catch(() => undefined)
+  }
+
+  /** The instance the log window is showing, or undefined when it is closed. */
+  get logInstanceId(): string | undefined {
+    return this.logWindowTarget
+  }
+
+  /** Callback that yields the current log, so a late-loading window can catch up. */
+  onLogWindowReady(handler: (instanceId: string) => void): void {
+    this.logWindowReady = handler
+  }
+
+  /** Callback that yields the active instance's snapshot when the content view loads. */
+  onContentReady(handler: () => void): void {
+    this.contentReady = handler
+  }
+
+  /** Whether the log window is open (and therefore wants log updates). */
+  hasLogWindow(): boolean {
+    return this.logWindow !== null && !this.logWindow.isDestroyed()
+  }
+
+  /** Forward a log snapshot to the log window, if it is open. */
+  sendLog(snapshot: ConnectionLogSnapshot): void {
+    if (this.logWindow === null || this.logWindow.isDestroyed()) return
+    this.logWindow.webContents.send(IPC.managerLogUpdate, snapshot satisfies ConnectionLogMessage)
+  }
+
+  /** Forward a snapshot to the in-tab connection view, when it is the page shown. */
+  sendConnection(snapshot: ConnectionLogSnapshot): void {
+    if (this.content.webContents.isDestroyed()) return
+    if (!this.content.webContents.getURL().startsWith(`dsh-app://${APP_VIEW_HOST}/`)) return
+    this.content.webContents.send(IPC.connectionUpdate, snapshot)
   }
 
   private layout(): void {

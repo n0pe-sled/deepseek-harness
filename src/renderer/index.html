@@ -31,6 +31,47 @@
       </form>
     </dialog>
 
+    <!-- Connection log window. Built in main.ts as a third duty of this page,
+         alongside the session top bar and the add-instance modal. -->
+    <section id="logview" class="logview" hidden>
+      <header class="log-head">
+        <div class="log-title">
+          <h1 id="log-name">Connection Log</h1>
+          <p id="log-target" class="log-target"></p>
+        </div>
+        <span id="log-status" class="log-status"></span>
+      </header>
+      <pre id="log-error" class="log-error" hidden></pre>
+      <pre id="log-lines" class="log-lines"></pre>
+      <footer class="log-foot">
+        <button id="log-copy" class="btn">Copy log</button>
+        <span id="log-copied" class="log-copied" hidden>Copied</span>
+      </footer>
+    </section>
+
+    <!-- In-tab connection view. This page is loaded INTO the content view with
+         ?connection=<id>, in the space the harness would occupy, while an
+         instance is starting and after it fails. -->
+    <section id="connview" class="connview" hidden>
+      <div class="conn-inner">
+        <header class="conn-head">
+          <div class="conn-title">
+            <h1 id="conn-name">Connecting</h1>
+            <p id="conn-target" class="conn-target"></p>
+          </div>
+          <span id="conn-status" class="log-status"></span>
+        </header>
+        <pre id="conn-error" class="conn-error" hidden></pre>
+        <pre id="conn-lines" class="conn-lines"></pre>
+        <footer class="conn-foot">
+          <button id="conn-retry" class="btn primary">Try again</button>
+          <button id="conn-logwin" class="btn">Open as window</button>
+          <button id="conn-copy" class="btn">Copy log</button>
+          <span id="conn-copied" class="log-copied" hidden>Copied</span>
+        </footer>
+      </div>
+    </section>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

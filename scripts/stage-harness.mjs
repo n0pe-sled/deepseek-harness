@@ -28,17 +28,37 @@
  *   node scripts/stage-harness.mjs --build                # run the harness build first
  *   node scripts/stage-harness.mjs --workspace /path/to/deepseek-harness
  *   node scripts/stage-harness.mjs --keep-stage           # keep the scratch deploy
+ *   node scripts/stage-harness.mjs --target linux-x64-glibc --out resources/harness-linux-x64
+ *
+ * Staging for another platform. The closure is not portable across platforms:
+ * koffi, sharp and node-addon-require-builtin each publish per-platform native
+ * packages, so a darwin closure cannot run on a linux remote. `--target` stages
+ * a closure for the named platform instead of this machine. `pnpm` decides which
+ * native packages to fetch from `supportedArchitectures` in the workspace
+ * `pnpm-workspace.yaml`, and that setting is a union with the host: narrowing it
+ * to the target alone breaks the host build tooling (esbuild, lefthook and
+ * koffi all run install scripts that need this machine's binaries). So staging
+ * for a foreign target resolves both, then prunes the foreign-platform packages
+ * out of the closure and verifies what is left still resolves.
+ *
+ * Staging for a foreign target deploys from a scratch git worktree rather than
+ * the caller's checkout, so the caller's `pnpm-workspace.yaml` and installed
+ * tree are never edited.
  */
 import { execFileSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { findUnresolvedDependencies } from './lib/resolve-closure.ts'
+import { formatTarget, harnessCacheKey, hostTarget, packageMatchesTarget, parseTarget, prebuildDirMatchesTarget, targetsEqual } from '../src/shared/harness-target.ts'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+/** Closure staged for this machine, which is what the packaged app ships. */
 const outDir = resolve(repoRoot, 'resources/harness')
 /** Scratch deploy target; removed unless --keep-stage. */
 const stageDir = resolve(repoRoot, 'resources/.harness-stage')
+/** Scratch checkouts used to resolve a foreign target; removed unless --keep-worktree. */
+const worktreeRoot = resolve(repoRoot, 'resources/.harness-worktree')
 /** The workspace package that owns the `dsh` bin. */
 const DEPLOY_FILTER = '@deepseek-ai/dsh'
 /** Workspace-relative pnpm virtual store, source for link-override packages. */
@@ -47,12 +67,15 @@ const DEPLOY_FILTER_STORE = 'node_modules/.pnpm'
 const LAYOUT = 2
 
 function parseArgs(argv) {
-  const opts = { workspace: undefined, build: false, keepStage: false }
+  const opts = { workspace: undefined, build: false, keepStage: false, target: undefined, out: undefined, keepWorktree: false }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--workspace') opts.workspace = argv[++i]
     else if (arg === '--build') opts.build = true
     else if (arg === '--keep-stage') opts.keepStage = true
+    else if (arg === '--target') opts.target = argv[++i]
+    else if (arg === '--out') opts.out = argv[++i]
+    else if (arg === '--keep-worktree') opts.keepWorktree = true
     else if (arg === '--help' || arg === '-h') {
       console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0])
       process.exit(0)
@@ -81,6 +104,239 @@ function resolveWorkspace(explicit) {
 
 function run(cmd, args, cwd) {
   execFileSync(cmd, args, { cwd, stdio: 'inherit', env: process.env })
+}
+
+/** Run a command and return trimmed stdout, or throw with its stderr attached. */
+function capture(cmd, args, cwd) {
+  return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+/**
+ * The `supportedArchitectures` block pnpm reads to decide which native optional
+ * dependencies to fetch. It is always a union with this machine's own platform,
+ * because the workspace's install scripts (esbuild, lefthook, koffi) run here
+ * and need this machine's binaries. Pruning happens later, on the closure.
+ */
+function supportedArchitecturesYaml(target) {
+  const host = hostTarget()
+  const oses = [...new Set([host.platform, target.platform])]
+  const cpus = [...new Set([host.arch, target.arch])]
+  const libcs = [...new Set([...(host.platform === 'linux' ? [host.libc ?? 'glibc'] : ['current']), ...(target.platform === 'linux' ? [target.libc ?? 'glibc'] : [])])]
+  const lines = [
+    'supportedArchitectures:',
+    '  os:',
+    ...oses.map((v) => `    - ${v}`),
+    '  cpu:',
+    ...cpus.map((v) => `    - ${v}`),
+  ]
+  if (libcs.length > 0) lines.push('  libc:', ...libcs.map((v) => `    - ${v}`))
+  return lines.join('\n')
+}
+
+/**
+ * A throwaway checkout of the harness at the revision being staged, carrying a
+ * `pnpm-workspace.yaml` that resolves native packages for the wanted target.
+ *
+ * A worktree rather than an in-place edit: `pnpm install` in the developer's
+ * checkout would rewrite its `pnpm-workspace.yaml` and installed tree, and a
+ * staging step that damages the workspace it reads is not worth the saved
+ * seconds. The worktree is detached at the workspace's current HEAD, so the
+ * revision in the closure is the revision that was asked for.
+ */
+function makeTargetWorktree(workspace, target) {
+  const head = capture('git', ['rev-parse', 'HEAD'], workspace)
+  const path = join(worktreeRoot, head.slice(0, 10))
+  removeTargetWorktree(workspace, path)
+  mkdirSync(worktreeRoot, { recursive: true })
+  run('git', ['worktree', 'add', '--detach', path, head], workspace)
+  const configPath = join(path, 'pnpm-workspace.yaml')
+  const config = readFileSync(configPath, 'utf8')
+  const block = supportedArchitecturesYaml(target)
+  const withArch = config.includes('supportedArchitectures')
+    ? config.replace(/supportedArchitectures:[\s\S]*?(?=\n\S|\s*$)/, block)
+    : config.replace(/^peerDependencyRules:/m, `${block}\n\npeerDependencyRules:`)
+  writeFileSync(configPath, withArch)
+  return path
+}
+
+/** Remove a scratch worktree and its git bookkeeping. */
+function removeTargetWorktree(workspace, path) {
+  try {
+    run('git', ['worktree', 'remove', '--force', path], workspace)
+  } catch {
+    rmSync(path, { recursive: true, force: true })
+  }
+  rmSync(worktreeRoot, { recursive: true, force: true })
+}
+
+/**
+ * Delete the native packages built for some other platform.
+ *
+ * `supportedArchitectures` has to be a union with the host, so the deploy
+ * carries darwin, win32, musl and both architectures at once: roughly 120MB of
+ * libvips, koffi and node-pty payload the remote can never load, against about
+ * 47MB for the whole closure gzipped. Deleting it is safe in a way that
+ * guessing never is, because `packageMatchesTarget` only removes a name it can
+ * positively read as a different platform; anything unrecognized is kept.
+ *
+ * The walk is recursive because foreign copies also sit inside other packages'
+ * own `node_modules` (the hoisted linker leaves peer-specialized copies there,
+ * and `flattenClosure` skips what already exists). Symlinks are skipped rather
+ * than followed: `materializeLinks` has already replaced them with real copies,
+ * and following one that survived would descend the same tree twice.
+ *
+ * Unresolved dependencies are re-checked by the caller afterwards, so a prune
+ * that removed something load-bearing fails staging instead of failing remotely.
+ */
+function pruneForeignArtifacts(target, nodeModules, removed = []) {
+  for (const entry of readdirSync(nodeModules, { withFileTypes: true })) {
+    if (entry.isSymbolicLink() || !entry.isDirectory()) continue
+    const name = entry.name
+    const path = join(nodeModules, name)
+    if (name.startsWith('@')) {
+      for (const scoped of readdirSync(path, { withFileTypes: true })) {
+        if (scoped.isSymbolicLink() || !scoped.isDirectory()) continue
+        const full = `${name}/${scoped.name}`
+        const scopedPath = join(path, scoped.name)
+        if (!packageMatchesTarget(full, target)) {
+          rmSync(scopedPath, { recursive: true, force: true })
+          removed.push(full)
+          continue
+        }
+        const nested = join(scopedPath, 'node_modules')
+        if (existsSync(nested)) pruneForeignArtifacts(target, nested, removed)
+      }
+      continue
+    }
+    if (!packageMatchesTarget(name, target)) {
+      rmSync(path, { recursive: true, force: true })
+      removed.push(name)
+      continue
+    }
+    // node-pty keeps every platform's PTY binding under `prebuilds/`, so the
+    // foreign ones are pruned at that level. Reached from the package itself:
+    // `prebuilds` is not a package name and the generic recursion below only
+    // descends into `node_modules`.
+    if (name === 'node-pty') {
+      const ptyPrebuilds = join(path, 'prebuilds')
+      if (existsSync(ptyPrebuilds)) {
+        for (const dir of readdirSync(ptyPrebuilds)) {
+          if (prebuildDirMatchesTarget(dir, target)) continue
+          rmSync(join(ptyPrebuilds, dir), { recursive: true, force: true })
+          removed.push(`node-pty/prebuilds/${dir}`)
+        }
+      }
+    }
+    const nested = join(path, 'node_modules')
+    if (existsSync(nested)) pruneForeignArtifacts(target, nested, removed)
+  }
+  return removed
+}
+
+/** Total bytes under a directory, for the human-readable staging summary. */
+function directorySize(dir) {
+  let total = 0
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) total += directorySize(path)
+    else if (entry.isFile()) total += statSync(path).size
+  }
+  return total
+}
+
+/** True when a path is a real directory (not a symlink, not missing). */
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Every directory in the workspace that can hold a package, taken from the
+ * workspace's own `pnpm-workspace.yaml` and expanded one level deep.
+ *
+ * Read rather than hardcoded because the layout changes: `native/landlock-run`
+ * and its `packages/*` members are a workspace inside the workspace, and a
+ * hardcoded `packages|apps|vendor` list silently skipped them. That skipped
+ * package's `lib/` never reached the closure, so a staged harness booted on a
+ * remote died on `Cannot find module .../node-addon-landlock-run/lib/index.js`.
+ *
+ * `packages` globs with a wildcard at the end mean "one more level under each
+ * match", which is the only shape this workspace uses, so a single extra
+ * expansion covers it.
+ */
+function workspacePackageDirs(workspace) {
+  const configPath = join(workspace, 'pnpm-workspace.yaml')
+  const patterns = []
+  if (existsSync(configPath)) {
+    const config = readFileSync(configPath, 'utf8')
+    const block = /^packages:\n((?:[ \t]+-.*\n?)*)/m.exec(config)
+    if (block !== null) {
+      for (const line of block[1].split('\n')) {
+        const entry = line.replace(/^\s*-\s*/, '').replace(/#.*$/, '').trim().replace(/^['"]|['"]$/g, '')
+        if (entry !== '' && !entry.startsWith('!')) patterns.push(entry)
+      }
+    }
+  }
+  for (const fallback of ['packages/*/*', 'apps/*', 'vendor/*', 'native/landlock-run/packages/*']) {
+    if (!patterns.includes(fallback)) patterns.push(fallback)
+  }
+
+  const dirs = []
+  const add = (dir) => {
+    if (!dirs.includes(dir) && isDirectory(dir)) dirs.push(dir)
+  }
+  for (const pattern of patterns) {
+    const segments = pattern.split('/').filter((s) => s !== '')
+    let matches = [workspace]
+    for (const segment of segments) {
+      const next = []
+      for (const base of matches) {
+        if (segment === '*') {
+          for (const entry of readdirSync(base, { withFileTypes: true })) {
+            if (entry.isDirectory() && !entry.name.startsWith('.')) next.push(join(base, entry.name))
+          }
+        } else {
+          next.push(join(base, segment))
+        }
+      }
+      matches = next
+    }
+    for (const match of matches) add(match)
+  }
+  return dirs
+}
+
+/**
+ * Copy every package's build outputs from one checkout into another.
+ *
+ * A scratch worktree contains only committed files, and this workspace keeps
+ * `lib/` and `dist/` out of git, so a fresh worktree has no built code at all.
+ * Most of it is restored into the closure after deploy anyway, but not all:
+ * `native/landlock-run` declares its own workspace and is deliberately excluded
+ * from the build globs, so its members are built by hand and their `lib/` has
+ * to come from the checkout that was built. Without this the closure boots on
+ * the remote and dies on `Cannot find module .../node-addon-landlock-run/lib/index.js`.
+ *
+ * Same two artifacts the closure restorer knows about, so the two steps cannot
+ * disagree about what counts as a build output.
+ */
+function copyBuildOutputs(fromWorkspace, toWorkspace) {
+  let copied = 0
+  for (const pkgDir of workspacePackageDirs(fromWorkspace)) {
+    const relative = pkgDir.slice(fromWorkspace.length + 1)
+    for (const artifact of ['lib', 'dist']) {
+      const from = join(pkgDir, artifact)
+      if (!isDirectory(from)) continue
+      const to = join(toWorkspace, relative, artifact)
+      mkdirSync(dirname(to), { recursive: true })
+      cpSync(from, to, { recursive: true, dereference: true })
+      copied += 1
+    }
+  }
+  return copied
 }
 
 /** Short git revision of the harness checkout, or 'unknown' outside a repo. */
@@ -135,27 +391,15 @@ function materializeLinks(nodeModules) {
 /** Map one workspace package name to its source directory in the checkout. */
 function sourceDirFor(workspace, fullName) {
   // Names do not map to paths predictably (packages/<category>/<leaf>, apps/*,
-  // vendor/*), so walk the workspace roots and match on each manifest's name.
-  for (const root of ['packages', 'apps', 'vendor']) {
-    const rootPath = join(workspace, root)
-    if (!existsSync(rootPath)) continue
-    for (const first of readdirSync(rootPath)) {
-      const firstPath = join(rootPath, first)
-      if (!statSync(firstPath).isDirectory()) continue
-      const probes = [firstPath]
-      for (const second of readdirSync(firstPath)) {
-        const secondPath = join(firstPath, second)
-        if (statSync(secondPath).isDirectory()) probes.push(secondPath)
-      }
-      for (const probe of probes) {
-        const manifest = join(probe, 'package.json')
-        if (!existsSync(manifest)) continue
-        try {
-          if (JSON.parse(readFileSync(manifest, 'utf8')).name === fullName) return probe
-        } catch {
-          // A malformed manifest cannot be the package we are looking for.
-        }
-      }
+  // vendor/*, native/landlock-run/packages/*), so walk every package directory
+  // the workspace declares and match on each manifest's name.
+  for (const probe of workspacePackageDirs(workspace)) {
+    const manifest = join(probe, 'package.json')
+    if (!existsSync(manifest)) continue
+    try {
+      if (JSON.parse(readFileSync(manifest, 'utf8')).name === fullName) return probe
+    } catch {
+      // A malformed manifest cannot be the package we are looking for.
     }
   }
   return undefined
@@ -389,7 +633,13 @@ function restoreBuildArtifacts(workspace, target) {
 
 function main() {
   const opts = parseArgs(process.argv.slice(2))
-  if (process.platform !== 'darwin') {
+  const host = hostTarget()
+  const target = opts.target === undefined ? host : parseTarget(opts.target)
+  const foreign = !targetsEqual(target, host)
+  const output = opts.out === undefined ? outDir : resolve(repoRoot, opts.out)
+  const scratch = foreign ? resolve(repoRoot, 'resources/.harness-stage-target') : stageDir
+
+  if (!foreign && process.platform !== 'darwin') {
     console.warn(`warning: staging on ${process.platform}; the closure carries ${process.platform}-specific native addons`)
   }
   const workspace = resolveWorkspace(opts.workspace)
@@ -397,6 +647,8 @@ function main() {
   const revision = gitRevision(workspace)
   console.log(`stage-harness: workspace ${workspace}`)
   console.log(`stage-harness: pinned ${DEPLOY_FILTER}@${pinnedVersion} (revision ${revision})`)
+  console.log(`stage-harness: target ${formatTarget(target)}${foreign ? ` (cross-staging from ${formatTarget(host)})` : ''}`)
+  console.log(`stage-harness: cache key ${harnessCacheKey(pinnedVersion, revision, target)}`)
 
   if (opts.build) {
     console.log('stage-harness: building the harness workspace')
@@ -412,78 +664,120 @@ function main() {
     throw new Error(`no built web UI at ${frontendDist}; rerun with --build (or run pnpm run build in the workspace)`)
   }
 
-  console.log(`stage-harness: pnpm deploy ${DEPLOY_FILTER} -> ${stageDir}`)
-  rmSync(stageDir, { recursive: true, force: true })
-  run('pnpm', [
-    '--filter', DEPLOY_FILTER, 'deploy',
-    '--legacy',
-    '--prod',
-    '--config.node-linker=hoisted',
-    '--config.auto-install-peers=false',
-    '--config.link-workspace-packages=true',
-    stageDir,
-  ], workspace)
-
-  const deployedManifest = join(stageDir, 'package.json')
-  if (!existsSync(deployedManifest)) {
-    throw new Error(`pnpm deploy produced no package.json at ${deployedManifest}`)
-  }
-  const deployed = JSON.parse(readFileSync(deployedManifest, 'utf8'))
-  if (deployed.version !== pinnedVersion) {
-    throw new Error(`deployed version ${String(deployed.version)} does not match the pinned ${pinnedVersion}`)
+  // A foreign target resolves its native packages from a scratch checkout, so
+  // this repository's own workspace config and installed tree stay untouched.
+  // Build outputs are not part of that: they are platform-independent, so they
+  // are copied out of the caller's build below rather than rebuilt there.
+  let deployWorkspace = workspace
+  let worktree
+  if (foreign) {
+    console.log('stage-harness: preparing a scratch worktree with target architectures')
+    worktree = makeTargetWorktree(workspace, target)
+    deployWorkspace = worktree
+    const seeded = copyBuildOutputs(workspace, worktree)
+    console.log(`stage-harness: seeded ${String(seeded)} build output(s) from ${workspace}`)
+    console.log(`stage-harness: installing target native packages (${formatTarget(host)} + ${formatTarget(target)})`)
+    run('pnpm', ['install', '--no-frozen-lockfile'], worktree)
   }
 
-  // The CLI package is the deploy root, so its built lib/ belongs at the top
-  // level; deploy filtered it out through `files`, so copy it from the checkout.
-  cpSync(join(workspace, 'apps', 'cli', 'lib'), join(stageDir, 'lib'), { recursive: true, dereference: true })
-  const restored = restoreBuildArtifacts(workspace, stageDir)
-  if (restored.length > 0) console.log(`stage-harness: restored build outputs: ${restored.join(', ')}`)
+  try {
+    console.log(`stage-harness: pnpm deploy ${DEPLOY_FILTER} -> ${scratch}`)
+    rmSync(scratch, { recursive: true, force: true })
+    run('pnpm', [
+      '--filter', DEPLOY_FILTER, 'deploy',
+      '--legacy',
+      '--prod',
+      '--config.node-linker=hoisted',
+      '--config.auto-install-peers=false',
+      '--config.link-workspace-packages=true',
+      scratch,
+    ], deployWorkspace)
 
-  materializeLinks(join(stageDir, 'node_modules'))
+    const deployedManifest = join(scratch, 'package.json')
+    if (!existsSync(deployedManifest)) {
+      throw new Error(`pnpm deploy produced no package.json at ${deployedManifest}`)
+    }
+    const deployed = JSON.parse(readFileSync(deployedManifest, 'utf8'))
+    if (deployed.version !== pinnedVersion) {
+      throw new Error(`deployed version ${String(deployed.version)} does not match the pinned ${pinnedVersion}`)
+    }
 
-  // Flatten the tree so every package the product needs is reachable from the
-  // closure root; see flattenClosure for why the deployed layout cannot boot.
-  const flattened = flattenClosure(workspace, stageDir, deployed)
-  if (flattened.length > 0) {
-    console.log(`stage-harness: flattened ${String(flattened.length)} package(s) into the closure root`)
+    // The CLI package is the deploy root, so its built lib/ belongs at the top
+    // level; deploy filtered it out through `files`, so copy it from the checkout.
+    cpSync(join(workspace, 'apps', 'cli', 'lib'), join(scratch, 'lib'), { recursive: true, dereference: true })
+    // Read build outputs from the checkout that was actually deployed, so the
+    // source directory of a package always sits next to the node_modules the
+    // workspace's own build produced for it.
+    const restored = restoreBuildArtifacts(deployWorkspace, scratch)
+    if (restored.length > 0) console.log(`stage-harness: restored build outputs: ${restored.join(', ')}`)
+
+    materializeLinks(join(scratch, 'node_modules'))
+
+    // Flatten the tree so every package the product needs is reachable from the
+    // closure root; see flattenClosure for why the deployed layout cannot boot.
+    const flattened = flattenClosure(deployWorkspace, scratch, deployed)
+    if (flattened.length > 0) {
+      console.log(`stage-harness: flattened ${String(flattened.length)} package(s) into the closure root`)
+    }
+    materializeLinks(join(scratch, 'node_modules'))
+
+    // A target closure must not carry another platform's native packages, and
+    // pruning them can strand a dependency, so the unresolved check below runs
+    // after this, on the pruned tree.
+    if (foreign) {
+      const before = directorySize(scratch)
+      const removed = pruneForeignArtifacts(target, join(scratch, 'node_modules'))
+      const after = directorySize(scratch)
+      console.log(`stage-harness: pruned ${String(removed.length)} foreign native package(s), ${mb(before - after)} smaller`)
+    }
+
+    // Nothing may remain unresolvable: a missing package here would only surface
+    // as a boot crash in the shipped app.
+    const unresolved = listUnresolved(scratch)
+    if (unresolved.length > 0) {
+      throw new Error(`staged closure is missing packages: ${unresolved.join(', ')}`)
+    }
+
+    rmSync(output, { recursive: true, force: true })
+    mkdirSync(dirname(output), { recursive: true })
+    cpSync(scratch, output, { recursive: true, dereference: true })
+
+    // node-pty ships a PTY helper beside its prebuilds; it is a real executable
+    // and must survive both copies with its mode intact. Only darwin ships one
+    // today, so on linux this reports absence rather than failing.
+    const helperPath = join(output, 'node_modules', 'node-pty', 'prebuilds', `${target.platform}-${target.arch}`, 'spawn-helper')
+    const helperPresent = existsSync(helperPath)
+    if (helperPresent) chmodSync(helperPath, 0o755)
+
+    const stagedCli = join(output, 'lib', 'bin.js')
+    if (!existsSync(stagedCli)) throw new Error(`staged closure has no CLI entry at ${stagedCli}`)
+    const stagedFrontend = join(output, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
+    if (!existsSync(stagedFrontend)) throw new Error(`staged closure has no web UI at ${stagedFrontend}`)
+
+    writeFileSync(join(output, 'harness-meta.json'), `${JSON.stringify({
+      version: deployed.version,
+      revision,
+      workspace,
+      layout: LAYOUT,
+      platform: target.platform,
+      arch: target.arch,
+      ...(target.platform === 'linux' ? { libc: target.libc ?? 'glibc' } : {}),
+      node: process.version,
+      stagedAt: new Date().toISOString(),
+    }, null, 2)}\n`)
+
+    const relative = output.startsWith(repoRoot + sep) ? output.slice(repoRoot.length + 1) : output
+    console.log(`stage-harness: ${DEPLOY_FILTER}@${String(deployed.version)} (${revision}) staged at ${relative} for ${formatTarget(target)}`)
+    console.log(`stage-harness: ${mb(directorySize(output))} on disk; web UI present, spawn-helper ${helperPresent ? 'present and executable' : 'absent (not needed on this target)'}`)
+  } finally {
+    if (!opts.keepStage) rmSync(scratch, { recursive: true, force: true })
+    if (worktree !== undefined && !opts.keepWorktree) removeTargetWorktree(workspace, worktree)
   }
-  materializeLinks(join(stageDir, 'node_modules'))
+}
 
-  // Nothing may remain unresolvable: a missing package here would only surface
-  // as a boot crash in the shipped app.
-  const unresolved = listUnresolved(stageDir)
-  if (unresolved.length > 0) {
-    throw new Error(`staged closure is missing packages: ${unresolved.join(', ')}`)
-  }
-
-  rmSync(outDir, { recursive: true, force: true })
-  mkdirSync(dirname(outDir), { recursive: true })
-  cpSync(stageDir, outDir, { recursive: true, dereference: true })
-
-  // node-pty's macOS PTY helper must stay executable through both copies.
-  const spawnHelper = join(outDir, 'node_modules', 'node-pty', 'prebuilds', `darwin-${process.arch}`, 'spawn-helper')
-  const helperPresent = existsSync(spawnHelper)
-  if (helperPresent) chmodSync(spawnHelper, 0o755)
-
-  const stagedCli = join(outDir, 'lib', 'bin.js')
-  if (!existsSync(stagedCli)) throw new Error(`staged closure has no CLI entry at ${stagedCli}`)
-  const stagedFrontend = join(outDir, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist', 'index.html')
-  if (!existsSync(stagedFrontend)) throw new Error(`staged closure has no web UI at ${stagedFrontend}`)
-
-  writeFileSync(join(outDir, 'harness-meta.json'), `${JSON.stringify({
-    version: deployed.version,
-    revision,
-    workspace,
-    layout: LAYOUT,
-    platform: process.platform,
-    arch: process.arch,
-    node: process.version,
-    stagedAt: new Date().toISOString(),
-  }, null, 2)}\n`)
-
-  if (!opts.keepStage) rmSync(stageDir, { recursive: true, force: true })
-  console.log(`stage-harness: ${DEPLOY_FILTER}@${String(deployed.version)} (${revision}) staged at resources/harness`)
-  console.log(`stage-harness: web UI present, spawn-helper ${helperPresent ? 'present and executable' : 'ABSENT (PTY tools will fail on macOS)'}`)
+/** Format a byte count for the staging summary. */
+function mb(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
 main()

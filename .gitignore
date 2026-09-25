@@ -14,6 +14,12 @@
 # time, never committed. Its own node_modules is covered by this entry.
 /resources/harness/
 /resources/.harness-stage/
+# Closures staged for remote targets (`--target`), which sit beside the host
+# closure as resources/harness-<platform>-<arch>, plus the scratch checkout and
+# deploy directory a cross-staging run uses. Same size and provenance.
+/resources/harness-*/
+/resources/.harness-stage-target/
+/resources/.harness-worktree/
 
 # Local TruffleHog path excludes (see the trufflehog-pre-push skill). The file
 # is environment-specific, so it stays out of the repo.

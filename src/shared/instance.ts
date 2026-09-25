@@ -19,6 +19,31 @@ export interface SshOptions {
   remotePort?: number
   /** StrictHostKeyChecking policy; default `accept-new`. */
   strictHostKeyChecking?: 'yes' | 'accept-new' | 'no'
+  /**
+   * Ship this app's harness closure to the host, run it there, and tunnel its
+   * discovered port back — instead of forwarding to a `dsh web` the user
+   * already runs on the configured `remotePort`.
+   *
+   * The closure is the fork's staged build, never a registry install, so the
+   * remote runs the same code this app does. When set, `remotePort` is ignored:
+   * the remote binds an ephemeral loopback port and the app discovers it from
+   * the readiness line.
+   */
+  provision?: ProvisionOptions
+}
+
+/** How a provisioned remote instance ships and runs the harness closure. */
+export interface ProvisionOptions {
+  /**
+   * Target to require instead of auto-detecting, as `platform-arch[-libc]`
+   * (for example `linux-x64-glibc`). Detection already reads `uname`, so this
+   * exists to override it, not to satisfy it.
+   */
+  target?: string
+  /** Remote directory for the closure; default `$HOME/.dsh-desktop/harness`. */
+  remoteRoot?: string
+  /** Filesystem path of the node runtime on the remote; default `node` from PATH. */
+  nodePath?: string
 }
 
 /** Local instance: spawned `dsh web` child process. */
@@ -65,6 +90,25 @@ export interface InstanceRuntime {
   error?: string
   /** Best-effort host.describe() summary, e.g. version. */
   detail?: string
+  /**
+   * Harness revision actually running, when it is knowable (a provisioned
+   * remote, or the bundled closure). This is what makes "am I on the fork"
+   * checkable at a glance: the fork and upstream publish under the same version
+   * string, so only the revision distinguishes them.
+   */
+  revision?: string
+  /** Where the running harness came from, when known. */
+  origin?: HarnessOrigin
+}
+
+/** Provenance of a running harness, shown in the instance row. */
+export interface HarnessOrigin {
+  /** Cache key or revision identity of the closure. */
+  closureKey?: string
+  /** Target the closure was built for, as `platform-arch[-libc]`. */
+  target?: string
+  /** True when this app shipped the closure to the host over ssh. */
+  provisioned?: boolean
 }
 
 export interface InstanceView {

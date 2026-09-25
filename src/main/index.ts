@@ -6,8 +6,8 @@
 import { app, dialog, ipcMain, Menu } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
-import { IPC, type AddKind, type AppTheme } from '../shared/ipc.ts'
+import { dirname, join } from 'node:path'
+import { IPC, type AddKind, type AppTheme, type ConnectionLogSnapshot } from '../shared/ipc.ts'
 import type {
   AddLocalInput,
   AddRawInput,
@@ -15,10 +15,11 @@ import type {
   InstanceView,
 } from '../shared/instance.ts'
 import { InstanceStore } from './instances/store.ts'
-import { InstanceManager } from './instances/manager.ts'
+import { InstanceManager, describeTarget } from './instances/manager.ts'
+import { bundledHarnessRoot } from './instances/bundled.ts'
 import { ApiBridge } from './bridge/api.ts'
 import { StreamBridge } from './bridge/streams.ts'
-import { registerProtocolHandler, registerSchemePrivileges } from './protocol.ts'
+import { registerProtocolHandler, registerSchemePrivileges, connectionViewUrl } from './protocol.ts'
 import { buildShellMenu, setTopbarChecked } from './menu.ts'
 import { AppWindow } from './window.ts'
 import { runSmoke } from './smoke.ts'
@@ -45,13 +46,26 @@ async function main(): Promise<void> {
   const rendererDir = join(outDir, '..', 'renderer')
 
   const store = new InstanceStore(app.getPath('userData'))
-  const manager = new InstanceManager(store, describeHost)
+  const manager = new InstanceManager(store, describeHost, {
+    // Provisioning ships one of the staged closures this build carries, so the
+    // directory is the same one the local instance boots from: `Resources` in a
+    // packaged app, the checkout's `resources/` in development.
+    resourcesDir: dirname(bundledHarnessRoot()),
+  })
   await manager.load()
 
   const appWindow = new AppWindow({
     managerPreload: join(preloadDir, 'manager.cjs'),
     dshPreload: join(preloadDir, 'dsh.cjs'),
     managerHtml: join(rendererDir, 'index.html'),
+  })
+  // A log window that finishes loading after the connect already failed still
+  // needs the result, so main pushes the current snapshot on load.
+  appWindow.onLogWindowReady((id) => appWindow.sendLog(logSnapshot(manager, id)))
+  // Same for the in-tab connection page, which reloads on every attempt.
+  appWindow.onContentReady(() => {
+    const active = manager.getActive()
+    if (active !== undefined) appWindow.sendConnection(logSnapshot(manager, active))
   })
 
   const deps = {
@@ -61,6 +75,10 @@ async function main(): Promise<void> {
     // Generic RPC requests carry the dsh-app origin host, so the bridge needs
     // the host→instance-id step; the same mapping the protocol handler uses.
     idForHost: (host: string) => manager.idForHost(host),
+    // The protocol handler renders these when an instance is not connected, so a
+    // failed connect explains itself in the content area.
+    nameFor: (id: string) => manager.views().find((v) => v.config.id === id)?.config.name,
+    failureFor: (id: string) => manager.errorOf(id),
   }
   const apiBridge = new ApiBridge(deps)
   const streamBridge = new StreamBridge(deps)
@@ -70,24 +88,40 @@ async function main(): Promise<void> {
   registerProtocolHandler({
     idForHost: (host) => manager.idForHost(host),
     endpointFor: (id) => manager.endpointOf(id),
+    // The in-tab connection view is the renderer build's own page, served from
+    // disk so it shares the app's styles and needs no second copy of the markup.
+    connectionPagePath: join(rendererDir, 'index.html'),
   })
 
   // Sidebar updates + active-instance switching.
   manager.subscribe((views) => {
     if (appWindow.topbarWebContents.isDestroyed()) return
     appWindow.topbarWebContents.send(IPC.managerUpdate, views)
+    // While the connection page is on screen it is the only thing reporting
+    // progress, so every state change pushes a fresh snapshot to it. The window
+    // ignores snapshots for another instance, so this needs no guard here.
+    const active = manager.getActive()
+    if (active !== undefined) appWindow.sendConnection(logSnapshot(manager, active))
   })
   const applyActive = (): void => {
     const id = manager.getActive()
     streamBridge.setActive(id)
     const host = id === undefined ? undefined : manager.hostOf(id)
-    const endpoint = id === undefined ? undefined : manager.endpointOf(id)
-    if (id === undefined || host === undefined || endpoint === undefined) {
+    if (id === undefined || host === undefined) {
       appWindow.showInstance(null)
-    } else {
-      appWindow.showInstance(`dsh-app://${host}/`)
-      appWindow.topbarWebContents.send(IPC.managerActiveChanged, id)
+      return
     }
+    const runtime = manager.views().find((v) => v.config.id === id)?.runtime
+    if (runtime?.status === 'running' && runtime.endpoint !== undefined) {
+      appWindow.showInstance(`dsh-app://${host}/`)
+    } else {
+      // Starting or failed: show the app's own connection page in the tab, with
+      // the reason and the live log, instead of a blank pane. This is the whole
+      // feedback story for a connect, so it goes in the space the harness would
+      // occupy rather than a separate window.
+      appWindow.showInstance(connectionViewUrl(id))
+    }
+    appWindow.topbarWebContents.send(IPC.managerActiveChanged, id)
   }
   applyActive()
 
@@ -160,6 +194,19 @@ async function main(): Promise<void> {
   })
 }
 
+/** One instance's connection log, shaped for the log window. */
+function logSnapshot(manager: InstanceManager, id: string): ConnectionLogSnapshot {
+  const view = manager.views().find((v) => v.config.id === id)
+  return {
+    instanceId: id,
+    name: view?.config.name ?? id,
+    target: view === undefined ? '' : describeTarget(view.config),
+    status: view?.runtime.status ?? 'unknown',
+    lines: manager.logOf(id),
+    ...(manager.errorOf(id) === undefined ? {} : { error: manager.errorOf(id) }),
+  }
+}
+
 function registerManagerIpc(
   manager: InstanceManager,
   appWindow: AppWindow,
@@ -192,10 +239,19 @@ function registerManagerIpc(
   })
 
   ipcMain.handle(IPC.managerConnect, async (_e, id: string): Promise<InstanceView> => {
-    const view = await manager.connect(id)
+    // Show the connection page immediately rather than waiting for connect() to
+    // finish: the point is to watch the attempt happen.
+    manager.setActive(id)
     applyActive()
-    appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
-    return view
+    try {
+      return await manager.connect(id)
+    } finally {
+      applyActive()
+      appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+      const snapshot = logSnapshot(manager, id)
+      appWindow.sendLog(snapshot)
+      appWindow.sendConnection(snapshot)
+    }
   })
 
   ipcMain.handle(IPC.managerDisconnect, async (): Promise<void> => {
@@ -204,6 +260,41 @@ function registerManagerIpc(
   })
 
   ipcMain.handle(IPC.managerActive, (): string | undefined => manager.getActive())
+
+  ipcMain.handle(IPC.managerGetLog, (_e, id: string): ConnectionLogSnapshot | undefined => {
+    return manager.views().some((v) => v.config.id === id) ? logSnapshot(manager, id) : undefined
+  })
+
+  ipcMain.on(IPC.managerOpenLog, (_e, id: string): void => {
+    if (typeof id !== 'string' || !manager.views().some((v) => v.config.id === id)) return
+    appWindow.openLogWindow(id)
+    appWindow.sendLog(logSnapshot(manager, id))
+  })
+
+  // The in-tab connection view lives in the content view, which has the dsh
+  // preload, so it reaches main through its own channels.
+  ipcMain.handle(IPC.connectionGet, (event, id?: string): ConnectionLogSnapshot | undefined => {
+    if (event.sender.id !== appWindow.contentId) return undefined
+    const target = typeof id === 'string' && id !== '' ? id : manager.getActive()
+    if (target === undefined) return undefined
+    return manager.views().some((v) => v.config.id === target) ? logSnapshot(manager, target) : undefined
+  })
+
+  ipcMain.handle(IPC.connectionRetry, async (event, id?: string): Promise<void> => {
+    if (event.sender.id !== appWindow.contentId) return
+    const target = typeof id === 'string' && id !== '' ? id : manager.getActive()
+    if (target === undefined) return
+    if (!manager.views().some((v) => v.config.id === target)) return
+    try {
+      await manager.connect(target)
+    } finally {
+      applyActive()
+      appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+      const snapshot = logSnapshot(manager, target)
+      appWindow.sendLog(snapshot)
+      appWindow.sendConnection(snapshot)
+    }
+  })
 
   ipcMain.handle(IPC.managerPickDsh, async (): Promise<string | null> => {
     const result = await dialog.showOpenDialog(appWindow.win, {

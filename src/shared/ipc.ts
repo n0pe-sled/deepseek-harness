@@ -16,10 +16,26 @@ export const IPC = {
   managerPickDsh: 'manager:pick-dsh',
   /** shell → main: open the add-instance modal window for one kind. */
   managerOpenAdd: 'manager:open-add',
+  /** shell → main: the connection log for one instance. */
+  managerGetLog: 'manager:get-log',
+  /** shell → main: open (or focus) the connection-log window for one instance. */
+  managerOpenLog: 'manager:open-log',
 
   // main → manager renderer (send)
   managerUpdate: 'manager:update',
   managerActiveChanged: 'manager:active-changed',
+  /** main → log window: the log for the instance that window is showing. */
+  managerLogUpdate: 'manager:log-update',
+
+  // connection view (the in-tab page shown while connecting, or after a failure).
+  // It loads in the content view, which carries the dsh preload rather than the
+  // manager preload, so it needs its own channels.
+  /** connection view → main: the snapshot for the instance in its URL. */
+  connectionGet: 'connection:get',
+  /** connection view → main: try the connection again. */
+  connectionRetry: 'connection:retry',
+  /** main → connection view: a fresh snapshot. */
+  connectionUpdate: 'connection:update',
 
   // top bar (session tabs) chrome
   /** shell → main: apply a top-bar visibility preference (restored from storage). */
@@ -48,6 +64,43 @@ export type IpcChannel = (typeof IPC)[keyof typeof IPC]
 
 /** Which add-instance modal the File menu asks the shell to open. */
 export type AddKind = 'local' | 'ssh' | 'raw'
+
+/**
+ * What the connection-log window renders. One snapshot per update: the log is
+ * short and replaced wholesale, so a diffing protocol would buy nothing.
+ */
+export interface ConnectionLogSnapshot {
+  instanceId: string
+  name: string
+  /** What the connect is doing, one line, e.g. "ssh box, forwarding remote port 3000". */
+  target: string
+  status: string
+  lines: string[]
+  /** Present only while the instance is in the error state. */
+  error?: string
+}
+
+/**
+ * A message on the log channel. Snapshots carry the log; `retarget` tells an
+ * already-open window to switch instance without a reload, which is what keeps a
+ * reader's scroll position when main reuses one window for a second connect.
+ */
+export type ConnectionLogMessage = ConnectionLogSnapshot | { retarget: string }
+
+/** Narrowing helper, so neither side has to guess which shape arrived. */
+export function isLogRetarget(message: ConnectionLogMessage): message is { retarget: string } {
+  return 'retarget' in message
+}
+
+/** The API the in-tab connection view gets from the dsh preload. */
+export interface DshConnectionApi {
+  /** The snapshot for one instance, or the active one when no id is given. */
+  get(instanceId?: string): Promise<ConnectionLogSnapshot | undefined>
+  /** Ask main to try again; resolves when the attempt finishes. */
+  retry(instanceId?: string): Promise<void>
+  /** Subscribe to snapshots pushed while this page is displayed. */
+  onUpdate(cb: (snapshot: ConnectionLogSnapshot) => void): () => void
+}
 
 export type StreamKind = 'mux' | 'host'
 

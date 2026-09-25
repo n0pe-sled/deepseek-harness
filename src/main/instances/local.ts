@@ -10,6 +10,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { LocalOptions } from '../../shared/instance.ts'
+import { parseReadyUrl } from '../../shared/readiness.ts'
 import { bundledHarnessArgs, resolveBundledHarness, type BundledHarness } from './bundled.ts'
 
 export interface LocalHandle {
@@ -19,7 +20,6 @@ export interface LocalHandle {
   onExit(cb: (code: number | null, signal: NodeJS.Signals | null) => void): void
 }
 
-const URL_LINE = /dsh web: (http:\/\/(?:127\.0\.0\.1|localhost):(\d+))/u
 const READY_TIMEOUT_MS = 30_000
 
 /** System directories added to the child PATH so dsh and its Node runtime resolve. */
@@ -48,9 +48,7 @@ export function augmentPath(path: string, home?: string): string {
 }
 
 /** Parsed readiness URL from one `dsh web:` stdout line, or undefined. */
-export function parseReadyUrl(line: string): string | undefined {
-  return URL_LINE.exec(line)?.[1]
-}
+export { parseReadyUrl }
 
 /** The executable, argv, and environment of one local dsh boot. */
 export interface LaunchCommand {
