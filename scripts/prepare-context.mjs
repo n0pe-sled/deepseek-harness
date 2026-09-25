@@ -81,12 +81,22 @@ for (const { arch, triple } of TARGETS) {
   run('node', [join(app, 'scripts', 'stage-harness.mjs'), '--workspace', harness, '--target', triple, '--out', join(out, `closure-${arch}`)])
 }
 
-// --- 2. Copy plugin sources out of the harness tree and build them ----------
+// --- 2. Copy plugin sources out and build them -------------------------------
+// Two plugin sources are merged: the harness fork's plugins/ tree (read-only
+// — sources are copied out and built here, never built in place) and this
+// repo's own plugins/ (the sandbox-specific ones).
 const pluginsDir = join(harness, 'plugins')
-const plugins = readdirSync(pluginsDir, { withFileTypes: true })
-  .filter((e) => e.isDirectory() && e.name !== 'node_modules')
-  .map((e) => e.name)
-  .filter((name) => existsSync(join(pluginsDir, name, 'package.json')) && existsSync(join(pluginsDir, name, 'cordis.patch.yml')))
+const sources = [
+  ...readdirSync(pluginsDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== 'node_modules')
+    .map((e) => ({ dir: join(pluginsDir, e.name), name: e.name })),
+  ...readdirSync(join(repoRoot, 'plugins'), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== 'node_modules')
+    .map((e) => ({ dir: join(repoRoot, 'plugins', e.name), name: e.name })),
+]
+const plugins = sources
+  .filter(({ dir }) => existsSync(join(dir, 'package.json')) && existsSync(join(dir, 'cordis.patch.yml')))
+  .map(({ dir, name }) => ({ dir, name }))
 if (plugins.length === 0) throw new Error(`no plugin packages found under ${pluginsDir}`)
 
 const copyFilter = (src) => {
@@ -94,13 +104,13 @@ const copyFilter = (src) => {
   return base !== 'node_modules' && base !== 'lib'
 }
 mkdirSync(join(out, 'plugins-src'), { recursive: true })
-for (const name of plugins) {
-  cpSync(join(pluginsDir, name), join(out, 'plugins-src', name), { recursive: true, filter: copyFilter })
-  const dir = join(out, 'plugins-src', name)
-  const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-  const frozen = existsSync(join(dir, 'pnpm-lock.yaml'))
-  run('pnpm', ['install', ...(frozen ? ['--frozen-lockfile'] : [])], { cwd: dir })
-  if (pkg.scripts?.build !== undefined) run('pnpm', ['build'], { cwd: dir })
+for (const { dir, name } of plugins) {
+  cpSync(dir, join(out, 'plugins-src', name), { recursive: true, filter: copyFilter })
+  const built = join(out, 'plugins-src', name)
+  const pkg = JSON.parse(readFileSync(join(built, 'package.json'), 'utf8'))
+  const frozen = existsSync(join(built, 'pnpm-lock.yaml'))
+  run('pnpm', ['install', ...(frozen ? ['--frozen-lockfile'] : [])], { cwd: built })
+  if (pkg.scripts?.build !== undefined) run('pnpm', ['build'], { cwd: built })
 }
 
 // --- 3. Seed the durable home: install every plugin into the sandbox profile
