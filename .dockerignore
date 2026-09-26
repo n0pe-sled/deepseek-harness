@@ -1,2 +1,4 @@
-# Build-context scratch produced by scripts/prepare-context.mjs (large)
-build/
+# The build context IS `build/` (prepared by scripts/prepare-context.mjs), so
+# nothing generated may be ignored here — only source-control noise is.
+.git
+build/meta.json

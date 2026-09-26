@@ -26,7 +26,14 @@ if [ ! -e /data/.dsh-seeded ]; then
   touch /data/.dsh-seeded
 fi
 
-node /opt/harness/lib/bin.js --profile sandbox web --port "$HARNESS_PORT" --no-open &
+# The sandbox profile ships with the image; a home seeded without it (e.g. an
+# e2e build) boots the default profile instead of failing on a missing one.
+PROFILE_ARGS=(--profile sandbox)
+if [ ! -d /data/profiles/sandbox ]; then
+  PROFILE_ARGS=()
+fi
+
+node /opt/harness/lib/bin.js "${PROFILE_ARGS[@]}" web --port "$HARNESS_PORT" --no-open &
 HARNESS_PID=$!
 node /opt/relay.cjs &
 RELAY_PID=$!

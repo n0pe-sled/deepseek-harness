@@ -16,6 +16,10 @@
 # itself runs no cross-arch code and buildx only assembles two thin layers.
 FROM node:22-bookworm-slim
 
+# Declared so the COPY below can use it: predefined platform args are not
+# visible inside a stage without this line. buildx sets it per platform.
+ARG TARGETARCH
+
 COPY build/closure-${TARGETARCH}/ /opt/harness/
 COPY build/plugins-src/ /opt/plugins/
 COPY build/seed-home/ /opt/seed-home/
