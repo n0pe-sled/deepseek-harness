@@ -53,8 +53,8 @@ under `/data/instances/<name>`.
 ## Build it locally
 
 ```sh
-node scripts/prepare-context.mjs                 # stages closures, builds plugins, seeds the profile
-docker buildx build --platform linux/amd64 .     # add --platform linux/arm64 on Apple Silicon
+node scripts/prepare-context.mjs                       # stages closures, builds plugins, seeds the profile
+docker buildx build -f Containerfile --platform linux/amd64 .   # arm64 on Apple Silicon
 ```
 
 Defaults expect sibling checkouts (`../deepseek-harness`, `../DeepSeek-App`);
