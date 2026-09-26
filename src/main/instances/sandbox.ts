@@ -89,14 +89,22 @@ export function buildDockerRunArgs(resolved: ResolvedSandbox, name: string, host
   return args
 }
 
-/** Whether one `docker port` output line publishes the relay port. */
+/**
+ * The published host port for the relay, from either `docker port` output
+ * shape. With no port argument Docker prints `<port>/tcp -> 127.0.0.1:<host>`;
+ * with a port argument it prints the bare `<host>:<port>` for that mapping
+ * only (verified against Docker on this machine). Both call sites ask for a
+ * specific port, so the bare shape is unambiguous.
+ */
 export function parseDockerPort(output: string, relayPort: number): number | undefined {
-  // One line looks like:  3081/tcp -> 127.0.0.1:64081
-  for (const line of output.split(/\r?\n/u)) {
-    if (!line.startsWith(`${String(relayPort)}/tcp`)) continue
-    const match = /:(\d+)\s*$/u.exec(line.trim())
+  const prefixed = new RegExp(`^${String(relayPort)}/tcp\\s*->\\s*\\S+:(\\d+)$`, 'u')
+  const bare = /^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):(\d+)$/u
+  for (const raw of output.split(/\r?\n/u)) {
+    const line = raw.trim()
+    if (line === '') continue
+    const match = prefixed.exec(line) ?? bare.exec(line)
     const port = match === null ? undefined : Number.parseInt(match[1] ?? '', 10)
-    if (port !== undefined && port > 0 && port <= 65535) return port
+    if (port !== undefined && Number.isSafeInteger(port) && port > 0 && port <= 65535) return port
   }
   return undefined
 }

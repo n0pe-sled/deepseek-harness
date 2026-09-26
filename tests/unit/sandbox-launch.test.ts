@@ -77,9 +77,16 @@ describe('parseDockerPort', () => {
     expect(parseDockerPort('3081/tcp -> 0.0.0.0:64081', SANDBOX_RELAY_PORT)).toBe(64081)
   })
 
+  it('reads the bare form docker prints when a port argument is given', () => {
+    // Verified against Docker: `docker port <name> 3081` prints just the address.
+    expect(parseDockerPort('127.0.0.1:64712\n', SANDBOX_RELAY_PORT)).toBe(64712)
+    expect(parseDockerPort('[::1]:64712', SANDBOX_RELAY_PORT)).toBe(64712)
+  })
+
   it('ignores other ports and garbage', () => {
     expect(parseDockerPort('3000/tcp -> 127.0.0.1:3000', SANDBOX_RELAY_PORT)).toBeUndefined()
     expect(parseDockerPort('', SANDBOX_RELAY_PORT)).toBeUndefined()
+    expect(parseDockerPort('Error: No public port', SANDBOX_RELAY_PORT)).toBeUndefined()
   })
 })
 
