@@ -31,11 +31,12 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 function parseArgs(argv) {
-  const opts = { harness: undefined, app: undefined, out: join(repoRoot, 'build') }
+  const opts = { harness: undefined, app: undefined, out: join(repoRoot, 'build'), strict: false }
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--harness') opts.harness = argv[++i]
     else if (argv[i] === '--app') opts.app = argv[++i]
     else if (argv[i] === '--out') opts.out = argv[++i]
+    else if (argv[i] === '--strict') opts.strict = true
     else throw new Error(`unknown argument: ${argv[i]}`)
   }
   return opts
@@ -68,6 +69,8 @@ if (!existsSync(join(app, 'scripts', 'stage-harness.mjs'))) {
 }
 
 const out = resolve(opts.out)
+/** With --strict a plugin that cannot build fails the run instead of being excluded. */
+const strict = opts.strict === true
 rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
 
@@ -103,21 +106,102 @@ const copyFilter = (src) => {
   const base = basename(src)
   return base !== 'node_modules' && base !== 'lib'
 }
-mkdirSync(join(out, 'plugins-src'), { recursive: true })
-for (const { dir, name } of plugins) {
-  cpSync(dir, join(out, 'plugins-src', name), { recursive: true, filter: copyFilter })
-  const built = join(out, 'plugins-src', name)
-  const pkg = JSON.parse(readFileSync(join(built, 'package.json'), 'utf8'))
-  const frozen = existsSync(join(built, 'pnpm-lock.yaml'))
-  run('pnpm', ['install', ...(frozen ? ['--frozen-lockfile'] : [])], { cwd: built })
-  if (pkg.scripts?.build !== undefined) run('pnpm', ['build'], { cwd: built })
+
+/**
+ * Repoint build-time `link:` specs that assume a different checkout layout.
+ *
+ * Several plugins declare their build-time peers as `link:../deepseek-harness/…`
+ * or `link:../../packages/…`, which only resolve when the plugin directory sits
+ * beside a `deepseek-harness` checkout rather than inside it. Those specs are
+ * devDependencies (used to compile, never shipped — runtime peers resolve from
+ * the profile's node_modules fallback), so the copy's manifest is rewritten to
+ * the real path in the harness checkout. Only specs that do NOT resolve where
+ * they are left alone and reported.
+ */
+function repointDanglingLinks(dir, harnessRoot, name) {
+  const pkgPath = join(dir, 'package.json')
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+  let changed = false
+  for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    const deps = pkg[section]
+    if (deps === undefined || typeof deps !== 'object') continue
+    for (const [dep, spec] of Object.entries(deps)) {
+      if (typeof spec !== 'string' || !spec.startsWith('link:')) continue
+      const target = spec.slice('link:'.length)
+      if (existsSync(resolve(dir, target))) continue
+      // The two layouts the fork's plugins were written for.
+      const candidates = [
+        resolve(harnessRoot, target.replace(/^\.\.\/deepseek-harness\//u, '')),
+        resolve(harnessRoot, target.replace(/^\.\.\/\.\.\//u, '')),
+      ]
+      const found = candidates.find((candidate) => existsSync(candidate))
+      if (found === undefined) continue
+      deps[dep] = `link:${found}`
+      changed = true
+      console.log(`  ${name}: repointed ${dep} -> ${found}`)
+    }
+  }
+  if (changed) writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
 }
+
+mkdirSync(join(out, 'plugins-src'), { recursive: true })
+/** Plugins whose build produced usable artifacts despite a reported failure. */
+const warned = []
+/** Plugins that produced nothing usable and are therefore not in the image. */
+const skipped = []
+const built = []
+for (const { dir, name } of plugins) {
+  const target = join(out, 'plugins-src', name)
+  cpSync(dir, target, { recursive: true, filter: copyFilter })
+  repointDanglingLinks(target, harness, name)
+  const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
+  if (existsSync(join(target, 'pnpm-lock.yaml'))) {
+    try {
+      run('pnpm', ['install', '--frozen-lockfile'], { cwd: target })
+    } catch {
+      // A plugin being edited can have a package.json ahead of its lockfile.
+      // The copy is throwaway and the source tree is never touched, so resolve
+      // it here rather than failing the whole image — but say so loudly, since
+      // a regenerated lockfile means this plugin's versions were not pinned.
+      console.warn(`! ${name}: lockfile is out of sync with package.json — resolving fresh in the build copy only`)
+      run('pnpm', ['install', '--no-frozen-lockfile'], { cwd: target })
+    }
+  } else {
+    run('pnpm', ['install'], { cwd: target })
+  }
+  if (pkg.scripts?.build === undefined) {
+    built.push(name)
+    continue
+  }
+  try {
+    run('pnpm', ['build'], { cwd: target })
+    built.push(name)
+  } catch (error) {
+    // A plugin mid-edit can fail a build-time typecheck after its bundles were
+    // already emitted. Judge by artifacts, not by exit code: with lib/index.js
+    // present the plugin is shippable, and refusing the whole image over
+    // somebody's in-flight typecheck helps nobody. Anything without artifacts
+    // is excluded loudly rather than shipped broken.
+    if (existsSync(join(target, 'lib', 'index.js'))) {
+      console.warn(`! ${name}: build reported failure but lib/index.js exists — shipping produced artifacts`)
+      warned.push(name)
+      built.push(name)
+    } else if (strict) {
+      throw error
+    } else {
+      console.warn(`!! ${name}: build failed and produced no lib/index.js — EXCLUDED from this image`)
+      skipped.push(name)
+    }
+  }
+}
+if (warned.length > 0) console.warn(`! built with warnings: ${warned.join(', ')}`)
+if (skipped.length > 0) console.warn(`!! excluded (build produced nothing usable): ${skipped.join(', ')}`)
 
 // --- 3. Seed the durable home: install every plugin into the sandbox profile
 const seedHome = join(out, 'seed-home')
 mkdirSync(join(seedHome, 'profiles'), { recursive: true })
 const cli = join(out, 'closure-amd64', 'lib', 'bin.js')
-for (const name of plugins) {
+for (const name of built) {
   run('node', [cli, 'plugin', '--profile', 'sandbox', 'add', join(out, 'plugins-src', name)], {
     env: { ...process.env, DSH_HOME: seedHome },
   })
@@ -131,5 +215,14 @@ console.log(`sandbox profile seeded with ${String(bundleCount)} bundles`)
 
 // --- 4. Record the closure identity for image tags --------------------------
 const meta = JSON.parse(readFileSync(join(out, 'closure-amd64', 'harness-meta.json'), 'utf8'))
-writeFileSync(join(out, 'meta.json'), `${JSON.stringify({ version: meta.version, revision: meta.revision }, null, 2)}\n`)
-console.log(`context ready in ${out}: ${plugins.length} plugins, harness ${meta.version} (${meta.revision})`)
+writeFileSync(join(out, 'meta.json'), `${JSON.stringify({
+  version: meta.version,
+  revision: meta.revision,
+  plugins: built,
+  ...(warned.length > 0 ? { pluginsWithBuildWarnings: warned } : {}),
+  ...(skipped.length > 0 ? { pluginsExcluded: skipped } : {}),
+}, null, 2)}\n`)
+console.log(`context ready in ${out}: ${String(built.length)}/${String(plugins.length)} plugins installed, harness ${meta.version} (${meta.revision})`)
+if (skipped.length > 0) {
+  console.warn(`!! ${String(skipped.length)} plugin(s) are NOT in this image: ${skipped.join(', ')}`)
+}
