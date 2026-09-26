@@ -1,0 +1,12 @@
+# Image build context produced by scripts/prepare-context.mjs (large: closures
+# and built plugins). Never committed — CI prepares it fresh each run.
+build/
+
+# Dependencies and build output of the plugins in this repo.
+node_modules/
+plugins/*/lib/
+plugins/*/*.tsbuildinfo
+
+# Local scratch
+*.log
+.DS_Store
