@@ -14,6 +14,8 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { containerName, resolveSandboxOptions, startSandboxedDsh } from '../../src/main/instances/sandbox.ts'
 
 const GATED = process.env.DSH_SANDBOX_PROBE === '1'
+/** Image under test: the published one by default, or a locally built tag. */
+const IMAGE = process.env.DSH_SANDBOX_IMAGE ?? 'ghcr.io/n0pe-sled/dsh-sandbox:latest'
 const d = GATED ? describe : describe.skip
 
 d('sandbox launch (live, gated)', () => {
@@ -31,9 +33,7 @@ d('sandbox launch (live, gated)', () => {
   it('boots the container, reports a loopback endpoint, and serves describe', async () => {
     const handle = await startSandboxedDsh({
       name: containerName(instanceId),
-      // The e2e image is built locally from the staged arm64 closure.
-      sandbox: { ...resolveSandboxOptions({ image: 'ghcr.io/n0pe-sled/dsh-sandbox:e2e' }), dshHome },
-      defaultDshHome: dshHome,
+      sandbox: { ...resolveSandboxOptions({ image: IMAGE }), dshHome },
       log: (line) => logs.push(line),
     })
     endpoint = handle.endpoint
