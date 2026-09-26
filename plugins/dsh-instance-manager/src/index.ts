@@ -83,6 +83,11 @@ function sameInstances(a: readonly SavedInstance[], b: readonly SavedInstance[])
 export function apply(ctx: Context, config: Config): void {
   const scope: SettingsScope<InstanceManagerSection> = ctx.settings.register('instance-manager', sectionSchema)
   const running = new Map<string, Running>()
+  const log = (line: string): void => {
+    // Container stdout, which is what `docker logs` shows: the supervisor's
+    // decisions are otherwise invisible from outside the sandbox.
+    process.stdout.write(`[instance-manager] ${line}\n`)
+  }
 
   const status = (name: string, patch: { state: string; url?: string; error?: string }): void => {
     void scope.update({ runtime: { ...currentRuntime(), [name]: patch } }).catch(() => undefined)
@@ -107,6 +112,7 @@ export function apply(ctx: Context, config: Config): void {
     })
     const handle: Running = { child, port, state: 'starting' }
     running.set(instance.name, handle)
+    log(`starting ${instance.name} on port ${port} (home ${home})`)
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
       const match = READY_URL.exec(chunk)
@@ -117,6 +123,7 @@ export function apply(ctx: Context, config: Config): void {
     })
     child.once('exit', (code, signal) => {
       running.delete(instance.name)
+      log(`${instance.name} exited (code ${String(code)}${signal === null ? '' : `, signal ${signal}`})`)
       status(instance.name, {
         state: 'stopped',
         ...(code === 0 || signal !== null
@@ -130,6 +137,7 @@ export function apply(ctx: Context, config: Config): void {
     const handle = running.get(name)
     if (handle === undefined) return
     running.delete(name)
+    log(`stopping ${name}`)
     handle.child.kill('SIGTERM')
     setTimeout(() => {
       if (handle.child.exitCode === null) handle.child.kill('SIGKILL')
@@ -170,7 +178,12 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
+  log(`ready: ${String(scope.get()?.instances?.length ?? 0)} saved instance(s), cli ${config.harnessCli}`)
   scope.watch(() => reconcile())
+  // Reconcile once at activation too: `watch` only fires on later commits, so
+  // without this an autoStart instance would sit stopped until some unrelated
+  // settings write happened to arrive.
+  reconcile()
   ctx.on('dispose', () => {
     for (const name of [...running.keys()]) stop(name)
   })
