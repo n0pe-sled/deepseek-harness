@@ -12,9 +12,17 @@ per-instance opt-out that restores the direct host-process behavior.
 
 - `node:22-bookworm-slim` (glibc; satisfies the harness engine range `^22.19.0 || >=24.0.0`)
 - `/opt/harness` — the fork's harness closure, staged from a pinned harness ref
-- `/opt/plugins` — every fork plugin, built from source
-- `/opt/seed-home` — a `sandbox` profile with all plugins installed; copied to
-  `/data` on first boot, so your instances and settings survive image upgrades
+- `/opt/harness/plugins-src` — every fork plugin, built from source, plus their
+  third-party runtime deps. They live *inside* the harness tree on purpose:
+  their `@deepseek-ai/*` peers are provided by the closure, and Node only finds
+  those by walking up from the plugin's real path. `/plugins-src` is a symlink
+  back into that tree, because the seeded profile links plugins by a relative
+  path that lands there once the home is mounted at `/data`.
+- `/opt/seed-home` — a `web` profile with all plugins installed; copied to
+  `/data` on first boot, so your instances and settings survive image upgrades.
+  The `web` profile specifically: it is the template that carries `dsh-web-app`,
+  and `dsh web` is an alias for `--profile web`, so the container boots the full
+  UI with every plugin already in its layer list.
 - `/opt/relay.cjs` — a loopback relay: the harness only ever binds `127.0.0.1`
   (by design, and the CLI refuses `0.0.0.0`), so the relay listens on
   `0.0.0.0:3081` inside the container and shovels bytes to the harness. Docker

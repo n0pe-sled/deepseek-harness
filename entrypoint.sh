@@ -26,14 +26,12 @@ if [ ! -e /data/.dsh-seeded ]; then
   touch /data/.dsh-seeded
 fi
 
-# The sandbox profile ships with the image; a home seeded without it (e.g. an
-# e2e build) boots the default profile instead of failing on a missing one.
-PROFILE_ARGS=(--profile sandbox)
-if [ ! -d /data/profiles/sandbox ]; then
-  PROFILE_ARGS=()
-fi
-
-node /opt/harness/lib/bin.js "${PROFILE_ARGS[@]}" web --port "$HARNESS_PORT" --no-open &
+# `web` is an alias for `--profile web`, which is exactly the profile the image
+# seeds its plugins into — so this boots the full web UI with every plugin. No
+# parent `--profile` may be passed: the web subcommand rejects one (it IS the
+# profile selector). A home seeded without that profile still boots, because
+# the harness initializes it from the web template.
+node /opt/harness/lib/bin.js web --port "$HARNESS_PORT" --no-open &
 HARNESS_PID=$!
 node /opt/relay.cjs &
 RELAY_PID=$!

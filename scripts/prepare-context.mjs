@@ -197,21 +197,28 @@ for (const { dir, name } of plugins) {
 if (warned.length > 0) console.warn(`! built with warnings: ${warned.join(', ')}`)
 if (skipped.length > 0) console.warn(`!! excluded (build produced nothing usable): ${skipped.join(', ')}`)
 
-// --- 3. Seed the durable home: install every plugin into the sandbox profile
+// --- 3. Seed the durable home: install every plugin into the web profile ----
+// The `web` profile specifically, not a custom one: `web` is the template that
+// carries `dsh-web-app` (an unknown profile name gets `dsh-base` alone and
+// boots with no UI at all), and `dsh web` is an alias for `--profile web`, so
+// the container boots straight into this profile with every plugin in it.
 const seedHome = join(out, 'seed-home')
 mkdirSync(join(seedHome, 'profiles'), { recursive: true })
 const cli = join(out, 'closure-amd64', 'lib', 'bin.js')
 for (const name of built) {
-  run('node', [cli, 'plugin', '--profile', 'sandbox', 'add', join(out, 'plugins-src', name)], {
+  run('node', [cli, 'plugin', '--profile', 'web', 'add', join(out, 'plugins-src', name)], {
     env: { ...process.env, DSH_HOME: seedHome },
   })
 }
 // The profile's manifest is the profile dir's own package.json, whose
 // `dsh.profile.bundles` lists the installed bundle names in layer order.
-const profilePkg = JSON.parse(readFileSync(join(seedHome, 'profiles', 'sandbox', 'package.json'), 'utf8'))
-const bundleCount = (profilePkg.dsh?.profile?.bundles ?? []).length
-if (bundleCount === 0) throw new Error('the sandbox profile seeded with no bundles — plugin install failed silently')
-console.log(`sandbox profile seeded with ${String(bundleCount)} bundles`)
+const profilePkg = JSON.parse(readFileSync(join(seedHome, 'profiles', 'web', 'package.json'), 'utf8'))
+const bundles = profilePkg.dsh?.profile?.bundles ?? []
+if (!bundles.includes('@deepseek-ai/dsh-web-app')) {
+  throw new Error(`the seeded web profile is missing dsh-web-app (bundles: ${bundles.join(', ')})`)
+}
+const pluginBundles = bundles.filter((b) => b.startsWith('dsh-') && b !== '@deepseek-ai/dsh-base')
+console.log(`web profile seeded: ${String(bundles.length)} bundles, ${String(pluginBundles.length)} plugins`)
 
 // --- 4. Record the closure identity for image tags --------------------------
 const meta = JSON.parse(readFileSync(join(out, 'closure-amd64', 'harness-meta.json'), 'utf8'))
