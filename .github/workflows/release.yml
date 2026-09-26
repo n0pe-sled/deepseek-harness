@@ -35,12 +35,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Mapped here because `secrets` cannot be read directly in a step `if`.
+      REPOS_TOKEN: ${{ secrets.REPOS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
-      # If these repos are private, provide a PAT with repo scope; otherwise
-      # GITHUB_TOKEN is enough. Full history, because staging a foreign target
-      # deploys from a scratch `git worktree` of the harness checkout.
+      # Both source repos are private, and GITHUB_TOKEN is scoped to THIS repo,
+      # so checking them out needs a PAT. Say that plainly instead of failing
+      # later with an opaque "repository not found".
+      - name: Require a PAT for the private source repos
+        if: env.REPOS_TOKEN == ''
+        run: |
+          echo "::error::REPOS_TOKEN is not set. Both pinned source repos are private and GITHUB_TOKEN cannot read them. Add a fine-grained PAT with read-only Contents access to ${HARNESS_REPO} and ${APP_REPO} as the REPOS_TOKEN secret in this repository."
+          exit 1
+
+      # Full history, because staging a foreign target deploys from a scratch
+      # `git worktree` of the harness checkout.
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.HARNESS_REPO }}
