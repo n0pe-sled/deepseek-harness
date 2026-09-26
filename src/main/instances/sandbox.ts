@@ -131,9 +131,8 @@ export async function pickFreePort(): Promise<number> {
 export interface SandboxLaunchOptions {
   /** Stable per-instance container name. */
   name: string
+  /** Resolved options; `dshHome` here is the sandbox-private home to bind. */
   sandbox: ResolvedSandbox
-  /** Directory backing the container's DSH_HOME when the config left it open. */
-  defaultDshHome: string
   log?: (line: string) => void
 }
 

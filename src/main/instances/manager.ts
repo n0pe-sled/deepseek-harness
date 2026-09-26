@@ -213,7 +213,6 @@ export class InstanceManager {
           const h = await startSandboxedDsh({
             name: containerName(config.id),
             sandbox: { ...sandbox, dshHome },
-            defaultDshHome: dshHome,
             log: (line) => this.log(id, line),
           })
           handle = h
