@@ -19,13 +19,10 @@ env:
   # the harness ref decides which closure and plugins are baked, and the app
   # ref pins the staging script that produces them. Bump both by hand — a
   # moving ref here would make two image tags from the same version differ.
-  #
-  # The app ref is main's head, not the feature branch: the only thing this
-  # build needs from that repo is scripts/stage-harness.mjs.
   HARNESS_REPO: n0pe-sled/deepseek-harness
   HARNESS_REF: c870675c14e60c9147162ba0507814eecb03921d
   APP_REPO: n0pe-sled/DeepSeek-App
-  APP_REF: 93b45eb029415cce326c4d26fb1244e24f2d74bd
+  APP_REF: 70627b4b2ec610905975a440d6713b9d87a58eb9
   IMAGE: ghcr.io/n0pe-sled/dsh-sandbox
 
 permissions:
@@ -41,31 +38,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Both source repos are private, and GITHUB_TOKEN is scoped to THIS repo,
-      # so checking them out needs a PAT. Say that plainly instead of failing
-      # later with an opaque "repository not found".
-      - name: Require a PAT for the private source repos
+      # The harness repo and its plugin submodules are private, and
+      # GITHUB_TOKEN is scoped to THIS repo, so reading them needs a PAT. Say
+      # that plainly instead of failing later with an opaque "repository not
+      # found". The app repo is public and needs no token.
+      - name: Require a PAT for the private harness checkout
         if: env.REPOS_TOKEN == ''
         run: |
-          echo "::error::REPOS_TOKEN is not set. Both pinned source repos are private and GITHUB_TOKEN cannot read them. Add a fine-grained PAT with read-only Contents access to ${HARNESS_REPO} and ${APP_REPO} as the REPOS_TOKEN secret in this repository."
+          echo "::error::REPOS_TOKEN is not set. ${HARNESS_REPO} and its plugin submodules are private and GITHUB_TOKEN cannot read them. Add a fine-grained PAT with read-only Contents access to that repo AND every plugin submodule repo as the REPOS_TOKEN secret in this repository."
           exit 1
 
       # Full history, because staging a foreign target deploys from a scratch
-      # `git worktree` of the harness checkout.
+      # `git worktree` of the harness checkout. Submodules carry the plugins:
+      # without them `harness/plugins/*` arrives as empty directories and the
+      # image quietly ships with no fork plugins at all.
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.HARNESS_REPO }}
           ref: ${{ env.HARNESS_REF }}
           path: harness
           fetch-depth: 0
+          submodules: true
           token: ${{ secrets.REPOS_TOKEN || github.token }}
+      # Public, so the default GITHUB_TOKEN reads it; submodules are on by
+      # default here too, and this repo has none.
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.APP_REPO }}
           ref: ${{ env.APP_REF }}
           path: app
           fetch-depth: 0
-          token: ${{ secrets.REPOS_TOKEN || github.token }}
+          submodules: true
 
       - uses: actions/setup-node@v4
         with:
