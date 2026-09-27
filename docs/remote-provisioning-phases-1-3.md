@@ -198,8 +198,12 @@ closures that do exist.
 ## Reproducing the live checks
 
 ```bash
+# Probe assets (Dockerfiles, probe key, known_hosts) are scratch files that live
+# outside this repo; point PROBE_DIR at wherever you keep them.
+PROBE_DIR=/path/to/dsh-remote-probe
+
 # start the probe hosts
-cd /opt/deepseek/tmp/dsh-remote-probe
+cd "$PROBE_DIR"
 docker start dsh-remote dsh-alpine        # Debian 13 :2222, Alpine :2223
 
 # clear any previous run
@@ -207,7 +211,7 @@ docker exec dsh-remote sh -c 'for d in /root/.dsh-desktop*/harness/*/; do [ -f "
 
 # run the live suite
 DSH_REMOTE_PROBE=1 DSH_PROBE_HOST=127.0.0.1 DSH_PROBE_PORT=2222 DSH_PROBE_USER=root \
-DSH_PROBE_KEY=/opt/deepseek/tmp/dsh-remote-probe/probe_key \
+DSH_PROBE_KEY="$PROBE_DIR/probe_key" \
   pnpm vitest run tests/unit/remote-provision.integration.test.ts
 ```
 
