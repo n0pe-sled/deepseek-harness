@@ -20,7 +20,7 @@ env:
   # ref pins the staging script that produces them. Bump both by hand — a
   # moving ref here would make two image tags from the same version differ.
   HARNESS_REPO: n0pe-sled/deepseek-harness
-  HARNESS_REF: c870675c14e60c9147162ba0507814eecb03921d
+  HARNESS_REF: 5d0c36efec8f9ac548c002e2d97369082e483b70
   APP_REPO: n0pe-sled/DeepSeek-App
   APP_REF: 70627b4b2ec610905975a440d6713b9d87a58eb9
   IMAGE: ghcr.io/n0pe-sled/dsh-sandbox
@@ -32,21 +32,15 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      # Mapped here because `secrets` cannot be read directly in a step `if`.
-      REPOS_TOKEN: ${{ secrets.REPOS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
-      # The harness repo and its plugin submodules are private, and
-      # GITHUB_TOKEN is scoped to THIS repo, so reading them needs a PAT. Say
-      # that plainly instead of failing later with an opaque "repository not
-      # found". The app repo is public and needs no token.
-      - name: Require a PAT for the private harness checkout
-        if: env.REPOS_TOKEN == ''
-        run: |
-          echo "::error::REPOS_TOKEN is not set. ${HARNESS_REPO} and its plugin submodules are private and GITHUB_TOKEN cannot read them. Add a fine-grained PAT with read-only Contents access to that repo AND every plugin submodule repo as the REPOS_TOKEN secret in this repository."
-          exit 1
+      # Every repo this build reads — the harness, the app, and all 14
+      # submodules — is public, so the default GITHUB_TOKEN reads them and no
+      # PAT is needed. If one ever goes private, add a fine-grained PAT with
+      # read-only Contents access to that repo and its submodules as a
+      # REPOS_TOKEN secret and pass `token: ${{ secrets.REPOS_TOKEN }}` on the
+      # matching checkout below.
 
       # Full history, because staging a foreign target deploys from a scratch
       # `git worktree` of the harness checkout. Submodules carry the plugins:
@@ -59,9 +53,6 @@ jobs:
           path: harness
           fetch-depth: 0
           submodules: true
-          token: ${{ secrets.REPOS_TOKEN || github.token }}
-      # Public, so the default GITHUB_TOKEN reads it; submodules are on by
-      # default here too, and this repo has none.
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.APP_REPO }}
