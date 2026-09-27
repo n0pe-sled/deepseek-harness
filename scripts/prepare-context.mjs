@@ -80,8 +80,35 @@ const TARGETS = [
   { arch: 'amd64', triple: 'linux-x64-glibc' },
   { arch: 'arm64', triple: 'linux-arm64-glibc' },
 ]
-for (const { arch, triple } of TARGETS) {
-  run('node', [join(app, 'scripts', 'stage-harness.mjs'), '--workspace', harness, '--target', triple, '--out', join(out, `closure-${arch}`)])
+
+// CI checks out the harness as SOURCE: the staging script needs a built
+// workspace (apps/cli/lib/bin.js and apps/web/dist) and fails with
+// "no built CLI ... rerun with --build" without one. So when the CLI is
+// absent, install the workspace once and let the FIRST staging run the build —
+// build outputs are platform-independent and the foreign-target pass copies
+// them into its scratch worktree, so one build serves both architectures. A
+// developer's already-built checkout skips all of this.
+const harnessCli = join(harness, 'apps', 'cli', 'lib', 'bin.js')
+if (!existsSync(harnessCli)) {
+  const lockfile = join(harness, 'pnpm-lock.yaml')
+  console.log('prepare-context: harness is unbuilt — installing the workspace')
+  try {
+    run('pnpm', ['install', ...(existsSync(lockfile) ? ['--frozen-lockfile'] : [])], { cwd: harness })
+  } catch {
+    // A drifted lockfile should not decide whether an image can be built.
+    console.log('prepare-context: frozen install failed; retrying with a resolved lockfile')
+    run('pnpm', ['install'], { cwd: harness })
+  }
+}
+for (const [index, { arch, triple }] of TARGETS.entries()) {
+  const buildFirst = index === 0 && !existsSync(harnessCli)
+  run('node', [
+    join(app, 'scripts', 'stage-harness.mjs'),
+    '--workspace', harness,
+    '--target', triple,
+    '--out', join(out, `closure-${arch}`),
+    ...(buildFirst ? ['--build'] : []),
+  ])
 }
 
 // --- 2. Copy plugin sources out and build them -------------------------------
