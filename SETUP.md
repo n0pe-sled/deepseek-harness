@@ -20,6 +20,16 @@ All plugin repositories are listed in `.gitmodules` at the root. They are
 not initialize under `git clone --recurse-submodules`, so a flat listing is what
 makes a plain recursive clone produce a complete tree.
 
+## Relationship to the upstream project
+
+This checkout started as a fork of DeepSeek Harness and is now the project. It does
+not track the original repository and takes no updates from it, so `origin` is the
+only remote and every commit here is local work. The harness packages keep the
+`deepseek-ai` npm scope because that is where they publish, and the release
+workflows keep the `deepseek-ai/deepseek-harness` repository URL because npm
+resolves trusted publishing against it. Nothing else refers to the original
+repository, and no branch here tracks a branch outside `origin`.
+
 ## Setup
 
 `dsh-manage` has no bootstrap mode. `--setup` was removed, and the only thing it
