@@ -61,7 +61,8 @@
       "icon": "build/icon.icns"
     },
     "dmg": {
-      "title": "DSH Desktop ${version}"
+      "title": "DSH Desktop ${version}",
+      "sign": true
     }
   }
 }
