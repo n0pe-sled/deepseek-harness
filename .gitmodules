@@ -37,9 +37,6 @@
 [submodule "plugins/web-search-searxng"]
 	path = plugins/web-search-searxng
 	url = https://github.com/n0pe-sled/web-search-searxng.git
-[submodule "skills"]
-	path = skills
-	url = https://github.com/n0pe-sled/deepseek-harness-skills.git
 [submodule "specterops-skills"]
 	path = skills/specterops-skills
 	url = https://github.com/SpecterOps/skills.git
