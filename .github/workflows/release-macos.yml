@@ -181,6 +181,43 @@ jobs:
           # and the release is published by softprops/action-gh-release below.
           pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
 
+      # electron-builder notarizes the .app and the pkg target, but not the dmg
+      # that carries the .app, so the disk image itself ships with no ticket. It
+      # gets quarantined on download like the app does, and an unnotarized image
+      # warns on the first double-click even when the app inside is notarized.
+      # Notarize and staple the image, so opening it is as quiet as opening the
+      # app: the user mounts it, drags the app out, and runs it.
+      - name: Notarize and staple the .dmg
+        working-directory: app
+        env:
+          # The certificate's PRESENCE is the flag, exactly as in the build step:
+          # `secrets` cannot be read in a step-level `if`, so the branch is in
+          # the shell. With no certificate the app is unsigned, and notarizing an
+          # unsigned app can only fail.
+          DSH_SIGNING_ENABLED: ${{ secrets.MAC_CERTIFICATE != '' && '1' || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ "${DSH_SIGNING_ENABLED:-}" != "1" ]; then
+            echo "no signing certificate; leaving the dmg unnotarized"
+            exit 0
+          fi
+          for dmg in release/*.dmg; do
+            # --wait holds the step until Apple answers, and exits nonzero when
+            # the submission is rejected, printing the reasons, so a bad image
+            # fails here rather than reaching the release.
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --wait
+            xcrun stapler staple "$dmg"
+            # Prove the ticket landed: stapling can succeed while the image
+            # still carries no usable ticket.
+            xcrun stapler validate "$dmg"
+          done
+
       - name: Summarize the release
         env:
           # Passed through the environment rather than interpolated into the
