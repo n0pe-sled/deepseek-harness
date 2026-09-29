@@ -1,0 +1,10 @@
+# The dsh-instance-manager bundle layer: one row that is BOTH the host-half
+# entry (the instance supervisor) and the browser-roster entry (the client-
+# modules host half scans enabled Loader entries for packages declaring
+# `dsh.client`). Activation is service-availability driven: the host half
+# injects `settings` (mounted by dsh-settings), and the browser half injects
+# `slots`/`settingsScope` (mounted by the web-app bundle's client composition).
+
+- insert:
+    - id: instance-manager
+      name: dsh-instance-manager
