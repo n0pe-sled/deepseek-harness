@@ -8,6 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import * as yaml from 'js-yaml'
 import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
 
@@ -111,19 +112,44 @@ const repositoryVersion = rootManifest.version
 const landlockWorkspaceManifest = readJson(join(root, 'native/landlock-run/package.json'))
 const landlockVersion = landlockWorkspaceManifest.version
 
+/**
+ * Directories excluded from the pnpm workspace by a negated declaration in
+ * `pnpm-workspace.yaml` (`!apps/desktop`). Read through the same YAML loader
+ * the workspace file itself uses, so a comment or quoting inside the `packages:`
+ * list cannot truncate the declaration.
+ */
+function workspaceExclusions(): string[] {
+  let declared: unknown
+  try {
+    declared = (yaml.load(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')) as { packages?: unknown }).packages
+  } catch {
+    return []
+  }
+  if (!Array.isArray(declared)) return []
+  return declared
+    .map(member => String(member))
+    .filter(member => member.startsWith('!'))
+    .map(member => member.slice(1).replace(/\/$/, ''))
+}
+
 /** Repo-relative dirs holding a package.json, walked to the configured depth. */
-function packageDirs(base: string, depth: number): string[] {
+function packageDirs(base: string, depth: number, excluded: readonly string[]): string[] {
   if (depth === 1) {
     return readdirSync(join(root, base), { withFileTypes: true })
       .filter(entry => entry.isDirectory())
       .filter(entry => !localArtifactDirs.has(entry.name))
+      // A directory the workspace file excludes is not a member, so its manifest
+      // is not held to member invariants. apps/desktop is the case: a private
+      // Electron shell with its own lockfile and workspace file, installed from
+      // its own directory rather than as a member of this workspace.
+      .filter(entry => !excluded.includes(`${base}/${entry.name}`))
       .filter(entry => existsSync(join(root, base, entry.name, 'package.json')))
       .map(entry => `${base}/${entry.name}`)
   }
   return readdirSync(join(root, base), { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .filter(entry => !localArtifactDirs.has(entry.name))
-    .flatMap(group => packageDirs(`${base}/${group.name}`, depth - 1))
+    .flatMap(group => packageDirs(`${base}/${group.name}`, depth - 1, excluded))
 }
 
 function workspaceManifests(): WorkspaceManifest[] {
@@ -131,8 +157,9 @@ function workspaceManifests(): WorkspaceManifest[] {
     { dir: '.', manifest: rootManifest },
   ]
 
+  const exclusions = workspaceExclusions()
   for (const { dir: base, depth } of workspaceGlobs) {
-    for (const dir of packageDirs(base, depth)) {
+    for (const dir of packageDirs(base, depth, exclusions)) {
       manifests.push({ dir, manifest: readJson(join(root, dir, 'package.json')) })
     }
   }

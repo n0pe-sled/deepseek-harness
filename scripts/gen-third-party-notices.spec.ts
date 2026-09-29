@@ -342,4 +342,12 @@ describe('manifestPatterns', () => {
       'examples/*/package.json',
     ])
   })
+
+  it('drops a negated member, which is not part of the workspace', () => {
+    expect(manifestPatterns(['apps/*', '!apps/desktop'])).toEqual([
+      'package.json',
+      'apps/*/package.json',
+      'examples/*/package.json',
+    ])
+  })
 })

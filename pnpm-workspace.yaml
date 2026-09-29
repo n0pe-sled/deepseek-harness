@@ -6,7 +6,16 @@ packages:
   - native/landlock-run
   - native/landlock-run/packages/*
   # Product assemblies over the package tier; apps/cli owns the `dsh` bin.
+  #
+  # apps/desktop is the exception and is deliberately excluded. The Electron
+  # shell (dsh-desktop) is not a release member: it is private, unpublished and
+  # carries its own pnpm-workspace.yaml, lockfile and electron/electron-builder
+  # tree. Resolving it here would pull electron into every harness install, and
+  # would make apps/desktop a release member that the workspace constraint gate
+  # rightly rejects for lacking publish metadata. Install it from apps/desktop
+  # instead. The negation must follow the glob it overrides.
   - apps/*
+  - '!apps/desktop'
   - website
   # The runnable demo leaves join as ONE workspace member: examples/package.json
   # declares the union of every leaf's cordis.yml plugins as workspace:*, so a

@@ -130,12 +130,20 @@ function readManifest(rel: string): Manifest {
 /**
  * Manifest globs, derived from the workspace declarations rather than listed
  * here, so a new member area (`tools/*`) is read the day it is declared.
+ *
+ * A negated declaration (`!apps/desktop`) excludes a directory from the
+ * workspace, so it is not a member and contributes no glob. It cannot be handed
+ * to `globSync` either: that API reads a leading `!` as part of the name rather
+ * than as a negation, so `!apps/desktop/package.json` would match nothing and
+ * silently read the excluded member's manifests back in. See
+ * {@link workspaceExcludes}, which turns the negations into the `exclude` globs
+ * the call needs.
  * @returns one glob per manifest-bearing location, repository-relative.
  */
 export function manifestPatterns(rootMembers: readonly string[]): string[] {
   return [
     'package.json',
-    ...rootMembers.map(member => `${member}/package.json`),
+    ...rootMembers.filter(member => !member.startsWith('!')).map(member => `${member}/package.json`),
     // The demo leaves join the workspace through `examples/package.json`, so
     // their own manifests are members of nothing and no glob above reaches them.
     'examples/*/package.json',
@@ -151,6 +159,13 @@ function workspaceMembers(rel: string): string[] {
   return declared.map(member => String(member))
 }
 
+/** Glob form of the negated workspace declarations, for `globSync`'s `exclude`. */
+function workspaceExcludes(rootMembers: readonly string[]): string[] {
+  return rootMembers
+    .filter(member => member.startsWith('!'))
+    .map(member => `${member.slice(1).replace(/\/$/, '')}/**`)
+}
+
 /**
  * Every workspace manifest, keyed by repository-relative path, plus the set of
  * workspace package names. Paths are normalized to `/` at ingestion: Node's
@@ -159,11 +174,13 @@ function workspaceMembers(rel: string): string[] {
  * would silently push dev-area manifests into the runtime tier.
  */
 function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
-  const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'))
+  const members = workspaceMembers('pnpm-workspace.yaml')
+  const patterns = manifestPatterns(members)
+  const exclude = workspaceExcludes(members)
   const manifests = new Map<string, Manifest>()
   const names = new Set<string>()
   for (const pattern of patterns) {
-    for (const path of globSync(pattern, { cwd: root })) {
+    for (const path of globSync(pattern, { cwd: root, exclude })) {
       const normalized = path.replaceAll('\\', '/')
       const manifest = readManifest(normalized)
       manifests.set(normalized, manifest)
