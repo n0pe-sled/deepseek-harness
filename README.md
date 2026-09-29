@@ -180,9 +180,18 @@ repository variables and can be overridden per run. `DSH_HARNESS_REF` is pinned
 to a full commit SHA, so a release keeps staging the same harness revision even
 after the harness branch moves; bump the variable to pick up new harness work.
 Set `MAC_CERTIFICATE`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to sign and notarize; without
-them the build is ad-hoc signed, and macOS quarantines the downloaded app on
-first launch:
+`APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to sign with a Developer ID
+and notarize. `MAC_CERTIFICATE` is the base64 of a `.p12` carrying the Developer
+ID Application certificate **and its private key**, exported from the login keychain
+with both items selected. A certificate-only export imports fine and then cannot sign,
+and electron-builder reports that as an unhelpful keychain error.
+
+Without those secrets the build carries no signature at all, not even an ad-hoc one,
+because electron-builder skips signing when it finds no identity. macOS reports such a
+downloaded app as "DSH Desktop is damaged and can't be opened. You should move it to
+the trash", which is the harsher wording of the refusal an unnotarized app gets. Copy
+the app out of the mounted disk image first, because opening it from the read-only
+volume fails the same way, then clear the download flag:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"

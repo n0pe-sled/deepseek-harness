@@ -144,9 +144,9 @@ jobs:
       - name: Build the .dmg
         working-directory: app
         env:
-          # When these secrets exist electron-builder signs and notarizes;
-          # otherwise it produces an ad-hoc signed build that runs after the
-          # documented quarantine removal in README.md.
+          # When these secrets exist electron-builder signs with a Developer ID
+          # and notarizes; otherwise it produces an unsigned build that runs
+          # after the documented quarantine removal in README.md.
           #
           # The secret is not just passed through: its PRESENCE is turned into a
           # flag, because by the time the shell runs there is no way to tell a
@@ -174,7 +174,7 @@ jobs:
           if [ "${DSH_SIGNING_ENABLED:-}" = "1" ] && [ -n "${CSC_LINK:-}" ]; then
             echo "using the provided signing certificate"
           else
-            echo "no signing certificate; dropping CSC_LINK/CSC_KEY_PASSWORD for an ad-hoc signed build"
+            echo "no signing certificate; dropping CSC_LINK/CSC_KEY_PASSWORD for an unsigned build"
             unset CSC_LINK CSC_KEY_PASSWORD
           fi
           # --publish never: electron-builder auto-enables publishing on a v* tag,
