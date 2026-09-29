@@ -224,6 +224,47 @@ jobs:
             echo "| artifact | ${DMG} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The app's update check compares a downloaded image against the SHA-256 the
+      # release publishes for it, and reports the image as unconfirmed when the
+      # release publishes none. `shasum -a 256` prints exactly the
+      # "<hex>  <name>" line that check reads, so the digest is taken here
+      # rather than left for someone to paste into a release by hand.
+      - name: Write the release body
+        working-directory: apps/desktop
+        run: |
+          # The digest has to name the file exactly as the asset is published,
+          # or the check cannot match it: a `./` prefix from the glob would
+          # leave every image unconfirmed even though the release publishes its
+          # digest. A missing image fails here rather than shipping a body with a
+          # literal glob in it.
+          for dmg in release/*.dmg; do
+            if [ ! -f "$dmg" ]; then
+              echo "no .dmg in release/ to digest" >&2
+              exit 1
+            fi
+          done
+          {
+            echo "macOS build of DSH Desktop, bundling DeepSeek Harness."
+            echo ""
+            echo "The .dmg is self-contained: it carries the harness closure and runs"
+            echo "it with the app's own Electron runtime, so no Node install and no"
+            echo "\`dsh\` on PATH are required."
+            echo ""
+            echo "Download the \`.dmg\`, drag **DSH Desktop** into \`/Applications\`, and"
+            echo "launch it. If macOS blocks the first launch, see the quarantine note"
+            echo "in the README."
+            echo ""
+            echo "## Artifact digest"
+            echo ""
+            echo "The app compares a downloaded image against the SHA-256 below and"
+            echo "reports the image as unconfirmed when the release publishes none."
+            echo ""
+            echo '```'
+            ( cd release && shasum -a 256 -- *.dmg )
+            echo '```'
+          } > release/release-body.md
+          cat release/release-body.md
+
       - name: Upload the .dmg artifact
         uses: actions/upload-artifact@v4
         with:
@@ -238,13 +279,4 @@ jobs:
         with:
           files: apps/desktop/release/*.dmg
           generate_release_notes: true
-          body: |
-            macOS build of DSH Desktop, bundling DeepSeek Harness.
-
-            The .dmg is self-contained: it carries the harness closure and runs
-            it with the app's own Electron runtime, so no Node install and no
-            `dsh` on PATH are required.
-
-            Download the `.dmg`, drag **DSH Desktop** into `/Applications`, and
-            launch it. If macOS blocks the first launch, see the quarantine note
-            in the README.
+          body_path: apps/desktop/release/release-body.md
