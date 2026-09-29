@@ -8,9 +8,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import * as yaml from 'js-yaml'
 import { hasTypertRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
 import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
+import { workspaceExclusions, workspaceMembers } from './workspace-members.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
@@ -112,26 +112,6 @@ const repositoryVersion = rootManifest.version
 const landlockWorkspaceManifest = readJson(join(root, 'native/landlock-run/package.json'))
 const landlockVersion = landlockWorkspaceManifest.version
 
-/**
- * Directories excluded from the pnpm workspace by a negated declaration in
- * `pnpm-workspace.yaml` (`!apps/desktop`). Read through the same YAML loader
- * the workspace file itself uses, so a comment or quoting inside the `packages:`
- * list cannot truncate the declaration.
- */
-function workspaceExclusions(): string[] {
-  let declared: unknown
-  try {
-    declared = (yaml.load(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')) as { packages?: unknown }).packages
-  } catch {
-    return []
-  }
-  if (!Array.isArray(declared)) return []
-  return declared
-    .map(member => String(member))
-    .filter(member => member.startsWith('!'))
-    .map(member => member.slice(1).replace(/\/$/, ''))
-}
-
 /** Repo-relative dirs holding a package.json, walked to the configured depth. */
 function packageDirs(base: string, depth: number, excluded: readonly string[]): string[] {
   if (depth === 1) {
@@ -157,7 +137,7 @@ function workspaceManifests(): WorkspaceManifest[] {
     { dir: '.', manifest: rootManifest },
   ]
 
-  const exclusions = workspaceExclusions()
+  const exclusions = workspaceExclusions(workspaceMembers('pnpm-workspace.yaml'))
   for (const { dir: base, depth } of workspaceGlobs) {
     for (const dir of packageDirs(base, depth, exclusions)) {
       manifests.push({ dir, manifest: readJson(join(root, dir, 'package.json')) })

@@ -19,6 +19,7 @@ import { createInterface } from 'node:readline/promises'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { validateTarballPayload } from './publication-payload.ts'
+import { workspaceExcludeGlobs, workspaceExclusions, workspaceMembers } from './workspace-members.ts'
 
 const DEFAULT_REGISTRY = 'https://registry.npm.harnessment.com'
 const DEFAULT_OUTPUT_DIRECTORY = '.artifacts/npm-baseline'
@@ -242,9 +243,23 @@ class WorkspacePackageSet {
   ) {}
 
   static discover(root: string): WorkspacePackageSet {
-    const manifestPaths = globSync(PACKAGE_PATTERNS, { cwd: root }).sort()
+    // PACKAGE_PATTERNS walks `apps/*` itself, so a member the workspace file
+    // excludes has to be excluded here too: apps/desktop is the private Electron
+    // shell, and this baseline's naming check rejects it.
+    const members = workspaceMembers('pnpm-workspace.yaml')
+    const excluded = workspaceExclusions(members)
+    const manifestPaths = globSync(PACKAGE_PATTERNS, {
+      cwd: root,
+      exclude: workspaceExcludeGlobs(members),
+    }).sort()
     if (manifestPaths.length === 0) {
       throw new Error('no package manifests found under vendor/, packages/, or apps/')
+    }
+    // The negation is load-bearing: if it ever stops applying, this baseline
+    // silently starts packing a directory the workspace does not contain.
+    const leaked = manifestPaths.filter(path => excluded.some(directory => path.startsWith(`${directory}/`)))
+    if (leaked.length > 0) {
+      throw new Error(`workspace-excluded members reached the baseline: ${leaked.join(', ')}`)
     }
 
     const packages: PackageTarget[] = []

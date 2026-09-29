@@ -16,6 +16,7 @@ import {
   readClientBuildRecord,
 } from '../client-build-environment.ts'
 import { validateTarballPayload } from '../publication-payload.ts'
+import { workspaceExcludeGlobs, workspaceMembers } from '../workspace-members.ts'
 
 /**
  * Dependency sections a consumer must publish after, because npm resolves them
@@ -128,7 +129,13 @@ export abstract class ReleaseFamily {
    * @returns Members sorted by directory, with names validated and deduplicated.
    */
   members(root: string): ReleaseMember[] {
-    const manifestPaths = globSync([...this.patterns], { cwd: root }).sort()
+    // A family pattern walks `apps/*` itself, so a member the workspace file
+    // excludes has to be excluded here too: apps/desktop is the private Electron
+    // shell, and this family would otherwise release it.
+    const manifestPaths = globSync([...this.patterns], {
+      cwd: root,
+      exclude: workspaceExcludeGlobs(workspaceMembers('pnpm-workspace.yaml')),
+    }).sort()
     if (manifestPaths.length === 0) throw new Error(`release family ${this.id} matched no manifests`)
 
     const members: ReleaseMember[] = []
