@@ -57,14 +57,25 @@ async function main(): Promise<void> {
   })
   await manager.load()
 
+  // The instance manager opens on the saved list, so a first run seeds this
+  // machine's local dsh rather than opening it on an empty list.
+  manager.seedDefaultLocal()
+
   const appWindow = new AppWindow({
     managerPreload: join(preloadDir, 'manager.cjs'),
     dshPreload: join(preloadDir, 'dsh.cjs'),
     managerHtml: join(rendererDir, 'index.html'),
+    instancesHtml: join(rendererDir, 'instances.html'),
   })
   // A log window that finishes loading after the connect already failed still
   // needs the result, so main pushes the current snapshot on load.
   appWindow.onLogWindowReady((id) => appWindow.sendLog(logSnapshot(manager, id)))
+  // The instance manager window does the same: a launch from the top bar can add
+  // a row before that window has finished loading.
+  appWindow.onInstanceManagerReady(() => {
+    appWindow.sendManagerUpdate(manager.views())
+    appWindow.sendActiveChanged(manager.getActive())
+  })
   // Same for the in-tab connection page, which reloads on every attempt.
   appWindow.onContentReady(() => {
     const active = manager.getActive()
@@ -98,8 +109,7 @@ async function main(): Promise<void> {
 
   // Sidebar updates + active-instance switching.
   manager.subscribe((views) => {
-    if (appWindow.topbarWebContents.isDestroyed()) return
-    appWindow.topbarWebContents.send(IPC.managerUpdate, views)
+    appWindow.sendManagerUpdate(views)
     // While the connection page is on screen it is the only thing reporting
     // progress, so every state change pushes a fresh snapshot to it. The window
     // ignores snapshots for another instance, so this needs no guard here.
@@ -124,28 +134,28 @@ async function main(): Promise<void> {
       // occupy rather than a separate window.
       appWindow.showInstance(connectionViewUrl(id))
     }
-    appWindow.topbarWebContents.send(IPC.managerActiveChanged, id)
+    appWindow.sendActiveChanged(id)
   }
   applyActive()
 
   registerManagerIpc(manager, appWindow, applyActive)
 
   // Match the shell chrome to the active dsh theme: the content page reports
-  // its resolved tokens, we paint the native window and forward to the sidebar.
+  // its resolved tokens, we paint the native window and forward to the shell
+  // pages. Every shell page paints from it, not only the bar: the manager window
+  // and the add form carry their own copy of the styles.
   const lastTheme: { value: AppTheme | undefined } = { value: undefined }
   ipcMain.on(IPC.dshTheme, (event, theme: AppTheme) => {
     if (event.sender.id !== appWindow.contentId) return
     if (!isValidTheme(theme)) return
     lastTheme.value = theme
     appWindow.win.setBackgroundColor(theme.background)
-    if (!appWindow.topbarWebContents.isDestroyed()) {
-      appWindow.topbarWebContents.send(IPC.managerTheme, theme)
-    }
+    appWindow.sendTheme(theme)
   })
-  // The sidebar pulls the current theme on boot so a theme reported before the
-  // sidebar finished subscribing is not lost (startup race).
+  // Every shell page pulls the current theme on boot so a theme reported before
+  // that page finished subscribing is not lost (startup race).
   ipcMain.handle(IPC.managerGetTheme, (event): AppTheme | undefined => {
-    if (event.sender.id !== appWindow.topbarWebContents.id) return undefined
+    if (!appWindow.isShellPage(event.sender.id)) return undefined
     return lastTheme.value
   })
 
@@ -163,6 +173,7 @@ async function main(): Promise<void> {
 
   const shellMenu = buildShellMenu({
     onAdd: (kind: AddKind) => appWindow.openAddModal(kind),
+    onLaunchInstance: () => appWindow.openInstanceManager(),
     onToggleTopbar: () => applyTopbar(!topbarVisible),
   })
   setTopbarChecked(shellMenu, topbarVisible)
@@ -219,26 +230,26 @@ function registerManagerIpc(
 
   ipcMain.handle(IPC.managerAddLocal, (_e, input: AddLocalInput): InstanceView => {
     const view = manager.addLocal(input)
-    appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+    appWindow.sendManagerUpdate(manager.views())
     return view
   })
 
   ipcMain.handle(IPC.managerAddSsh, (_e, input: AddSshInput): InstanceView => {
     const view = manager.addSsh(input)
-    appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+    appWindow.sendManagerUpdate(manager.views())
     return view
   })
 
   ipcMain.handle(IPC.managerAddRaw, (_e, input: AddRawInput): InstanceView => {
     const view = manager.addRaw(input)
-    appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+    appWindow.sendManagerUpdate(manager.views())
     return view
   })
 
   ipcMain.handle(IPC.managerRemove, async (_e, id: string): Promise<void> => {
     await manager.remove(id)
     applyActive()
-    appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+    appWindow.sendManagerUpdate(manager.views())
   })
 
   ipcMain.handle(IPC.managerConnect, async (_e, id: string): Promise<InstanceView> => {
@@ -250,7 +261,7 @@ function registerManagerIpc(
       return await manager.connect(id)
     } finally {
       applyActive()
-      appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+      appWindow.sendManagerUpdate(manager.views())
       const snapshot = logSnapshot(manager, id)
       appWindow.sendLog(snapshot)
       appWindow.sendConnection(snapshot)
@@ -292,7 +303,7 @@ function registerManagerIpc(
       await manager.connect(target)
     } finally {
       applyActive()
-      appWindow.topbarWebContents.send(IPC.managerUpdate, manager.views())
+      appWindow.sendManagerUpdate(manager.views())
       const snapshot = logSnapshot(manager, target)
       appWindow.sendLog(snapshot)
       appWindow.sendConnection(snapshot)
@@ -308,9 +319,16 @@ function registerManagerIpc(
     return result.filePaths[0] ?? null
   })
 
-  ipcMain.handle(IPC.managerOpenAdd, (_e, kind: AddKind): void => {
-    if (kind !== 'local' && kind !== 'ssh' && kind !== 'raw') return
-    appWindow.openAddModal(kind)
+  ipcMain.on(IPC.managerOpenInstances, (): void => {
+    appWindow.openInstanceManager()
+  })
+
+  ipcMain.on(IPC.managerCloseInstances, (event): void => {
+    // Only the manager window closes itself: every renderer can reach this
+    // channel, so an unguarded close would be a way to close someone else's
+    // window.
+    if (event.sender.id !== appWindow.instancesId) return
+    appWindow.closeInstanceManager()
   })
 }
 

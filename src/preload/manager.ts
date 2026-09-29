@@ -18,7 +18,8 @@ const api: DshManagerApi = {
   disconnect: () => ipcRenderer.invoke(IPC.managerDisconnect),
   active: () => ipcRenderer.invoke(IPC.managerActive),
   pickDsh: () => ipcRenderer.invoke(IPC.managerPickDsh),
-  openAdd: (kind) => ipcRenderer.invoke(IPC.managerOpenAdd, kind),
+  openInstances: () => ipcRenderer.send(IPC.managerOpenInstances),
+  closeInstances: () => ipcRenderer.send(IPC.managerCloseInstances),
   getLog: (id) => ipcRenderer.invoke(IPC.managerGetLog, id),
   openLog: (id) => ipcRenderer.send(IPC.managerOpenLog, id),
   // The log window knows which instance it is showing from its own URL, the same

@@ -12,6 +12,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import type { LocalOptions } from '../../shared/instance.ts'
 import { parseReadyUrl } from '../../shared/readiness.ts'
 import { bundledHarnessArgs, resolveBundledHarness, type BundledHarness } from './bundled.ts'
+import { augmentPath } from './exec-path.ts'
 
 export interface LocalHandle {
   endpoint: string
@@ -21,9 +22,6 @@ export interface LocalHandle {
 }
 
 const READY_TIMEOUT_MS = 30_000
-
-/** System directories added to the child PATH so dsh and its Node runtime resolve. */
-const NODE_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin', '/usr/bin', '/bin']
 
 /**
  * A dsh executable may carry a trailing `web` subcommand the user typed in the
@@ -38,13 +36,6 @@ export function normalizeDshPath(value: string): string {
     return parts.slice(0, -1).join(' ')
   }
   return trimmed
-}
-
-/** Append common user and system executable directories for LaunchServices apps. */
-export function augmentPath(path: string, home?: string): string {
-  const userPathDirs = home === undefined || home === '' ? [] : [`${home}/.local/bin`, `${home}/bin`]
-  const parts = [path, ...userPathDirs, ...NODE_PATH_DIRS]
-  return [...new Set(parts.filter((p) => p !== ''))].join(':')
 }
 
 /** Parsed readiness URL from one `dsh web:` stdout line, or undefined. */

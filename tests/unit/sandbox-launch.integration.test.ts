@@ -5,6 +5,13 @@
  * fresh temp directory, never the user's real one.
  *
  *   DSH_SANDBOX_PROBE=1 pnpm vitest run tests/unit/sandbox-launch.integration.test.ts
+ *
+ * To cover the case the launcher's PATH widening exists for, a Finder launch
+ * where docker is installed but absent from PATH, run the gate under launchd's PATH:
+ *
+ *   env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$HOME" DSH_SANDBOX_PROBE=1 \
+ *     "$(command -v node)" ./node_modules/vitest/vitest.mjs run \
+ *     tests/unit/sandbox-launch.integration.test.ts
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,6 +19,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { afterAll, describe, expect, it } from 'vitest'
 import { containerName, resolveSandboxOptions, startSandboxedDsh } from '../../src/main/instances/sandbox.ts'
+import { containerPath, findExecutable } from '../../src/main/instances/exec-path.ts'
 
 const GATED = process.env.DSH_SANDBOX_PROBE === '1'
 /** Image under test: the published one by default, or a locally built tag. */
@@ -62,7 +70,12 @@ d('sandbox launch (live, gated)', () => {
     await stop()
     // Gone, not merely stopped: `docker rm -f` is what stop does, so a
     // reconnect can never adopt a half-dead container.
-    const inspect = spawnSync('docker', ['inspect', '--format', '{{.State.Status}}', containerName(instanceId)], { encoding: 'utf8' })
+    const docker = findExecutable('docker', containerPath(process.env.PATH ?? '', process.env.HOME))
+    expect(docker).toBeDefined()
+    const inspect = spawnSync(docker ?? 'docker', ['inspect', '--format', '{{.State.Status}}', containerName(instanceId)], { encoding: 'utf8' })
+    // The command must have run: a failed lookup would pass the next assertion
+    // for the wrong reason.
+    expect(inspect.error).toBeUndefined()
     expect(inspect.status).not.toBe(0)
   })
 })

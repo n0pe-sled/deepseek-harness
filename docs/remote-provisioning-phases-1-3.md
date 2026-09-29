@@ -20,7 +20,7 @@ refusal path.
 | `src/main/instances/ssh.ts` | Shared connection options; tunnel to a discovered port; one-shot remote commands |
 | `scripts/stage-harness.mjs` | `--target`, `--out`, `--keep-worktree`; recursive foreign-artifact pruning |
 | `src/shared/instance.ts` | `SshOptions.provision`, and `revision`/`origin` on the runtime view |
-| `src/renderer/main.ts`, `styles.css` | Provisioning checkbox with its caveats, and the revision shown on the instance row |
+| `src/renderer/main.ts`, `styles.css` | Provisioning switches with their caveats, and the revision shown on the instance row |
 
 Tests: `tests/unit/harness-target.test.ts` (25), `provision-parse.test.ts` (41),
 `closure-catalog.test.ts` (12), plus `remote-provision.integration.test.ts` (5,

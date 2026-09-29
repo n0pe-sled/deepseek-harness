@@ -1,13 +1,15 @@
 /**
  * Native macOS application menu. The shell chrome lives in the window's top bar,
- * so the menu carries the two things that bar cannot: the add-instance entries
- * and the switch that hides the bar itself.
+ * so the menu carries the things that bar cannot: the instance manager, the
+ * per-kind add-instance entries, and the switch that hides the bar itself.
  */
 import { Menu, type MenuItemConstructorOptions } from 'electron'
 import type { AddKind } from '../shared/ipc.ts'
 
 export interface ShellMenuHandlers {
   onAdd(kind: AddKind): void
+  /** Open the instance manager: the one place an instance is launched from. */
+  onLaunchInstance(): void
   onToggleTopbar(): void
 }
 
@@ -20,6 +22,12 @@ export function buildShellMenu(handlers: ShellMenuHandlers): Menu {
     {
       label: 'File',
       submenu: [
+        {
+          label: 'Launch Instance…',
+          accelerator: 'CmdOrCtrl+Shift+L',
+          click: () => handlers.onLaunchInstance(),
+        },
+        { type: 'separator' },
         {
           label: 'New Local Instance…',
           accelerator: 'CmdOrCtrl+L',

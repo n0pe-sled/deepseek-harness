@@ -1,5 +1,5 @@
 import type { AddLocalInput, AddRawInput, AddSshInput, InstanceView } from './instance.ts'
-import type { AddKind, AppTheme, ConnectionLogSnapshot } from './ipc.ts'
+import type { AppTheme, ConnectionLogSnapshot } from './ipc.ts'
 
 /** The manager API exposed to the shell page as window.dshManager. */
 export interface DshManagerApi {
@@ -12,8 +12,10 @@ export interface DshManagerApi {
   disconnect(): Promise<void>
   active(): Promise<string | undefined>
   pickDsh(): Promise<string | null>
-  /** Ask main to open the add-instance modal window (shell buttons; the File menu opens it directly). */
-  openAdd(kind: AddKind): void
+  /** Ask main to open (or focus) the instance manager window. */
+  openInstances(): void
+  /** Instance manager only: close its own window once a launch is under way. */
+  closeInstances(): void
   /** The connection log for one instance, for the log window. */
   getLog(id: string): Promise<ConnectionLogSnapshot | undefined>
   /** Ask main to open (or focus) the connection-log window for one instance. */

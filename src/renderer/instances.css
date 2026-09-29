@@ -1,0 +1,238 @@
+/**
+ * Instance manager window layout. Loaded after the shared styles.css, so this
+ * file owns the two-pane grid and nothing that styles.css already covers:
+ * buttons, form controls, error banners, and the status dots stay there.
+ */
+
+body.manager-window {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Left rail fixed at 260px, pane takes the rest, both fill the window. */
+.manager {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  height: 100vh;
+}
+
+/* A display rule beats the hidden attribute, so every element this page hides
+ * with that attribute gets one here as well. */
+.manager[hidden],
+.detail[hidden],
+.create[hidden],
+.pane-note[hidden],
+.pane-meta[hidden],
+.pane-progress[hidden],
+.rail-note[hidden],
+.error-banner[hidden],
+.fatal[hidden] { display: none; }
+
+/* ---- Left rail --------------------------------------------------------- */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Grid items size to their content by default, which would let a long row
+   * list push the window's own scroll height past the viewport. */
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.rail-head h1 { margin: 0; font-size: 13px; font-weight: 600; }
+
+.rail-new { flex: none; }
+.rail-new.on {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.rail-note {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inst-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.inst-row:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.inst-row.selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--text);
+}
+
+.inst-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inst-kind {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* ---- Right pane ------------------------------------------------------- */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  /* The pane fills its grid row whatever the form is: without this the taller
+   * pane would stretch past the window and hide the action buttons. */
+  min-height: 0;
+  overflow: hidden;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.detail,
+.create {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pane-title { min-width: 0; }
+.pane-title h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.pane-kind { margin: 3px 0 0; color: var(--muted); font-size: 11px; letter-spacing: 0.04em; }
+
+.pane-status {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--muted) 20%, transparent);
+  color: var(--muted);
+}
+.pane-status.running { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+.pane-status.starting,
+.pane-status.reconnecting { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.pane-status.error { background: color-mix(in srgb, var(--err) 22%, transparent); color: var(--err); }
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+
+.pane-target { margin: 0; font-size: 12px; line-height: 1.5; }
+
+/* Runtime detail: version, revision, target, endpoint. */
+.pane-meta {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pane-progress { margin: 12px 0 0; color: var(--warn); font-size: 11px; }
+
+.pane-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+.pane-spacer { flex: 1; }
+
+/* ---- New instance pane ------------------------------------------------- */
+
+.kind-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.kind-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kind-tab:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.kind-tab.selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--text);
+}
+.kind-tab:disabled { opacity: 0.45; cursor: default; }
+
+/* Field widths stay readable instead of stretching across a wide window. */
+.create-form { max-width: 560px; }
+
+/* ---- Missing API notice ------------------------------------------------- */
+
+.fatal {
+  margin: 0;
+  padding: 20px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pane-note {
+  margin: 0;
+  padding: 16px 18px;
+  color: var(--muted);
+  font-size: 12px;
+}

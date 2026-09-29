@@ -11,7 +11,6 @@ let sshErrorTail: (stderr: string, lines?: number) => string
 let normalizeRawUrl: (url: string) => string
 let describeTarget: (config: InstanceConfig) => string
 let normalizeDshPath: (value: string) => string
-let augmentPath: (path: string) => string
 
 beforeAll(async () => {
   const local = await import('../../src/main/instances/local.ts')
@@ -26,7 +25,6 @@ beforeAll(async () => {
   normalizeRawUrl = manager.normalizeRawUrl
   describeTarget = manager.describeTarget
   normalizeDshPath = local.normalizeDshPath
-  augmentPath = local.augmentPath
 })
 
 describe('normalizeDshPath', () => {
@@ -46,27 +44,6 @@ describe('normalizeDshPath', () => {
     expect(normalizeDshPath('   ')).toBe('')
   })
 })
-
-describe('augmentPath', () => {
-  it('appends standard node directories', () => {
-    const result = augmentPath('/usr/bin', '/Users/me')
-    expect(result.startsWith('/usr/bin')).toBe(true)
-    expect(result).toContain('/Users/me/.local/bin')
-    expect(result).toContain('/opt/homebrew/bin')
-    expect(result).toContain('/usr/local/bin')
-  })
-
-  it('handles an empty PATH', () => {
-    const result = augmentPath('')
-    expect(result).toContain('/opt/homebrew/bin')
-  })
-
-  it('does not add relative user directories without a home', () => {
-    const result = augmentPath('', '')
-    expect(result).not.toContain('.local/bin')
-  })
-})
-
 
 describe('parseReadyUrl', () => {
   it('extracts the loopback URL from a readiness line', () => {

@@ -16,6 +16,10 @@
  * - Readiness comes from `docker logs -f` — a stream the app can follow, not
  *   a fixed sleep — because a cold start under emulation can take far longer
  *   than a host start.
+ * - The CLI is found on a PATH widened by `containerPath` and run by absolute
+ *   path: started from Finder this process has launchd's PATH, which has no
+ *   /usr/local/bin, and a bare `docker` spawn reports a working install as
+ *   missing.
  * - Everything the app itself assembles is an argv array passed to spawn;
  *   never a shell string.
  */
@@ -23,6 +27,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
 import type { SandboxOptions } from '../../shared/instance.ts'
 import { DEFAULT_SANDBOX_IMAGE, SANDBOX_RELAY_PORT } from '../../shared/instance.ts'
+import { containerPath, findExecutable } from './exec-path.ts'
 
 /** A sandbox with its defaults resolved; the launcher's only input. */
 export interface ResolvedSandbox {
@@ -145,45 +150,128 @@ export interface SandboxHandle {
 const RUNTIME_PROBE_TIMEOUT_MS = 10_000
 const READY_TIMEOUT_MS = 120_000
 
-/** Which container CLI answers, docker first. */
-async function detectRuntime(log: (line: string) => void): Promise<string> {
-  for (const cli of ['docker', 'podman']) {
-    if (await commandWorks(cli)) return cli
-    log(`${cli}: not available`)
-  }
-  throw new Error(
-    'no container runtime found (tried docker, podman). '
-    + 'Install one to use the sandbox, or disable sandboxing for this instance to run dsh directly.',
-  )
+/** Container CLIs in preference order. */
+const RUNTIME_CLIS = ['docker', 'podman'] as const
+
+/**
+ * The container CLI to drive, plus the environment every one of its spawns
+ * runs with. `bin` is an absolute path so a spawn cannot resolve to a
+ * different binary than the probe approved, and `env` carries the widened PATH
+ * that found it, which the CLI also needs for its own credential helpers.
+ */
+export interface ContainerRuntime {
+  cli: string
+  bin: string
+  env: NodeJS.ProcessEnv
 }
 
-function commandWorks(cli: string): Promise<boolean> {
-  return new Promise((resolveWorks) => {
-    const child = spawn(cli, ['version', '--format', 'ok'], { stdio: 'ignore' })
+/** One candidate CLI's outcome, kept apart so the error can name the real fault. */
+export interface RuntimeCandidate {
+  cli: string
+  bin?: string
+  failure?: string
+}
+
+/**
+ * Which container CLI answers, docker first. The caller passes an environment
+ * whose PATH `containerPath` already widened: a Dock-launched app inherits a
+ * PATH with no /usr/local/bin, so a bare spawn would find no CLI that is in
+ * fact installed.
+ */
+export async function detectRuntime(log: (line: string) => void, env: NodeJS.ProcessEnv): Promise<ContainerRuntime> {
+  const pathValue = env.PATH ?? ''
+  const candidates: RuntimeCandidate[] = []
+  for (const cli of RUNTIME_CLIS) {
+    const bin = findExecutable(cli, pathValue)
+    if (bin === undefined) {
+      log(`${cli}: not installed`)
+      candidates.push({ cli })
+      continue
+    }
+    const failure = await probeDaemon(bin, env)
+    if (failure === undefined) {
+      log(`${cli}: ${bin}`)
+      return { cli, bin, env }
+    }
+    log(`${cli}: found at ${bin}, but not usable (${failure})`)
+    candidates.push({ cli, bin, failure })
+  }
+  throw new Error(noRuntimeMessage(candidates, pathValue))
+}
+
+/**
+ * `version --format ok`, where the success flag means the daemon answered.
+ * Returns undefined when it did, or a one-line reason when it did not: a CLI
+ * whose daemon is down fails this and would fail `run` too, so it is caught
+ * here where the message can say so.
+ */
+function probeDaemon(bin: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  return new Promise((resolveProbe) => {
+    const child = spawn(bin, ['version', '--format', 'ok'], { stdio: ['ignore', 'ignore', 'pipe'], env })
+    let stderr = ''
+    let settled = false
+
+    const finish = (failure: string | undefined): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolveProbe(failure)
+    }
+
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
-      resolveWorks(false)
+      finish(`no answer within ${String(RUNTIME_PROBE_TIMEOUT_MS / 1000)}s`)
     }, RUNTIME_PROBE_TIMEOUT_MS)
-    child.once('error', () => {
-      clearTimeout(timer)
-      resolveWorks(false)
+
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk
     })
+    child.once('error', (error) => finish(error.message))
     child.once('exit', (code) => {
-      clearTimeout(timer)
-      resolveWorks(code === 0)
+      finish(code === 0 ? undefined : lastLine(stderr) ?? `exit ${String(code)}`)
     })
   })
 }
 
-/** Run one short docker command, returning its stdout; throws on nonzero exit. */
-async function docker(runtime: string, args: readonly string[], timeoutMs = RUNTIME_PROBE_TIMEOUT_MS): Promise<string> {
+/** The last non-empty line of CLI stderr, cut to a length an error can carry. */
+function lastLine(text: string): string | undefined {
+  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line !== '')
+  const line = lines.at(-1)
+  if (line === undefined) return undefined
+  return line.length > 240 ? `${line.slice(0, 237)}...` : line
+}
+
+/**
+ * The failure text for an unusable runtime. An installed CLI that is not
+ * answering needs a different fix than a missing one, and one message for both
+ * sent users with a stopped Docker Desktop looking for an installer.
+ */
+export function noRuntimeMessage(candidates: readonly RuntimeCandidate[], pathValue: string): string {
+  const installed = candidates.find((candidate) => candidate.bin !== undefined)
+  if (installed !== undefined) {
+    const start = installed.cli === 'docker' ? 'Start Docker Desktop' : 'Start the podman machine'
+    return `${installed.cli} is installed at ${installed.bin} but did not answer: ${installed.failure ?? 'no detail'}. `
+      + `${start}, or disable sandboxing for this instance to run dsh directly.`
+  }
+  const searched = [...new Set(pathValue.split(':').filter((dir) => dir !== ''))]
+  return `no container runtime found: looked for docker and podman in ${searched.join(', ')}. `
+    + 'Install one to use the sandbox, or disable sandboxing for this instance to run dsh directly.'
+}
+
+/** Run one short container CLI command, returning its stdout; throws on nonzero exit. */
+async function docker(
+  runtime: ContainerRuntime,
+  args: readonly string[],
+  timeoutMs = RUNTIME_PROBE_TIMEOUT_MS,
+): Promise<string> {
   return await new Promise((resolveOut, reject) => {
-    const child = spawn(runtime, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(runtime.bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: runtime.env })
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
-      reject(new Error(`${runtime} ${args[0]} timed out`))
+      reject(new Error(`${runtime.cli} ${args[0]} timed out`))
     }, timeoutMs)
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
@@ -195,12 +283,12 @@ async function docker(runtime: string, args: readonly string[], timeoutMs = RUNT
     })
     child.once('error', (error) => {
       clearTimeout(timer)
-      reject(new Error(`could not run ${runtime}: ${error.message}`))
+      reject(new Error(`could not run ${runtime.cli}: ${error.message}`))
     })
     child.once('exit', (code) => {
       clearTimeout(timer)
       if (code === 0) resolveOut(stdout)
-      else reject(new Error(`${runtime} ${args[0]} failed (exit ${String(code)})${stderr.trim() === '' ? '' : `: ${stderr.trim().split('\n').slice(-2).join('; ')}`}`))
+      else reject(new Error(`${runtime.cli} ${args[0]} failed (exit ${String(code)})${stderr.trim() === '' ? '' : `: ${stderr.trim().split('\n').slice(-2).join('; ')}`}`))
     })
   })
 }
@@ -212,8 +300,11 @@ async function docker(runtime: string, args: readonly string[], timeoutMs = RUNT
  */
 export async function startSandboxedDsh(opts: SandboxLaunchOptions): Promise<SandboxHandle> {
   const { log = () => undefined } = opts
-  const runtime = await detectRuntime(log)
-  log(`container runtime: ${runtime}`)
+  // Widen PATH before looking for a container CLI: started from Finder this
+  // process has launchd's PATH, which has no /usr/local/bin and so no docker.
+  const env = { ...process.env, PATH: containerPath(process.env.PATH ?? '', process.env.HOME) }
+  const runtime = await detectRuntime(log, env)
+  log(`container runtime: ${runtime.bin}`)
 
   // Pull only when the image is absent: the common path is offline and instant.
   try {
@@ -246,7 +337,7 @@ export async function startSandboxedDsh(opts: SandboxLaunchOptions): Promise<San
 
   // Follow the logs for readiness: a stream, not a sleep, so an emulated cold
   // start takes the time it needs (the timeout is generous for that reason).
-  const logs = spawn(runtime, ['logs', '-f', opts.name], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const logs = spawn(runtime.bin, ['logs', '-f', opts.name], { stdio: ['ignore', 'pipe', 'pipe'], env: runtime.env })
   let settled = false
   const ready = new Promise<void>((resolveReady, rejectReady) => {
     const timer = setTimeout(() => {
@@ -284,7 +375,7 @@ export async function startSandboxedDsh(opts: SandboxLaunchOptions): Promise<San
     stop: async () => {
       logs.kill('SIGTERM')
       await new Promise<void>((resolveStop) => {
-        const child = spawn(runtime, ['rm', '-f', opts.name], { stdio: 'ignore' })
+        const child = spawn(runtime.bin, ['rm', '-f', opts.name], { stdio: 'ignore', env: runtime.env })
         child.once('error', () => resolveStop())
         child.once('exit', () => resolveStop())
       })
@@ -298,11 +389,11 @@ export async function startSandboxedDsh(opts: SandboxLaunchOptions): Promise<San
 }
 
 /** The host port the relay publishes, read from `docker port`. */
-async function publishedPort(runtime: string, name: string): Promise<number> {
+async function publishedPort(runtime: ContainerRuntime, name: string): Promise<number> {
   const out = await docker(runtime, ['port', name, String(SANDBOX_RELAY_PORT)])
   const port = parseDockerPort(out, SANDBOX_RELAY_PORT)
   if (port === undefined) {
-    throw new Error(`could not read the published relay port from ${runtime} port ${name}`)
+    throw new Error(`could not read the published relay port from ${runtime.cli} port ${name}`)
   }
   return port
 }

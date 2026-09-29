@@ -1,7 +1,10 @@
 import type { InstanceView } from '../shared/instance.ts'
 import { isLogRetarget } from '../shared/ipc.ts'
-import type { AddKind, AppTheme, ConnectionLogMessage, ConnectionLogSnapshot, DshConnectionApi } from '../shared/ipc.ts'
+import type { ConnectionLogMessage, ConnectionLogSnapshot, DshConnectionApi } from '../shared/ipc.ts'
 import type { DshManagerApi } from '../shared/manager.ts'
+import { ADD_KINDS, MODES, collectValues, renderFields } from './add-modes.ts'
+import type { AddMode } from './add-modes.ts'
+import { applyTheme } from './theme.ts'
 
 declare global {
   interface Window {
@@ -9,22 +12,6 @@ declare global {
     /** The content view's API for the in-tab connection page; absent in the shell. */
     dshConnection: DshConnectionApi
   }
-}
-
-interface FieldSpec {
-  key: string
-  label: string
-  placeholder: string
-  type?: 'text' | 'number' | 'checkbox'
-  required?: boolean
-  /** Help text under the field, for options whose effect is not obvious. */
-  hint?: string
-}
-
-interface AddMode {
-  title: string
-  fields: FieldSpec[]
-  submit(values: Record<string, string>): Promise<void>
 }
 
 const tabsEl = document.getElementById('tabs') as HTMLElement
@@ -72,40 +59,25 @@ if (shellManager !== undefined) {
   void shellManager.getTheme().then((theme) => { if (theme !== undefined) applyTheme(theme) }).catch(() => undefined)
 }
 
-function applyTheme(theme: AppTheme): void {
-  const root = document.documentElement
-  root.style.colorScheme = theme.colorScheme
-  root.style.setProperty('--bg', theme.background)
-  root.style.setProperty('--panel', theme.panel)
-  root.style.setProperty('--border', theme.border)
-  root.style.setProperty('--text', theme.text)
-  root.style.setProperty('--muted', theme.subtext)
-  root.style.setProperty('--accent', theme.accent)
-  root.style.setProperty('--on-accent', contrastForeground(theme.accent))
-}
-
-/** Pick a readable foreground for a hex background (dark text on light, white on dark). */
-function contrastForeground(hex: string): string {
-  if (!/^#[0-9a-fA-F]{6}/u.test(hex)) return '#ffffff'
-  const r = Number.parseInt(hex.slice(1, 3), 16)
-  const g = Number.parseInt(hex.slice(3, 5), 16)
-  const b = Number.parseInt(hex.slice(5, 7), 16)
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return luminance > 0.6 ? '#1a1d23' : '#ffffff'
-}
-
 // ---- Top bar chrome: main owns the layout, we own the stored choice ----
 const TOPBAR_KEY = 'dsh:topbar-hidden'
 
 if (!isConnectionView) {
   shellManager!.onTopbarChanged((visible: boolean) => {
     localStorage.setItem(TOPBAR_KEY, visible ? '0' : '1')
+    // Main keeps the bar strip over the content pane while the bar is hidden,
+    // as the window's drag handle. Nothing may be painted inside it, or the strip
+    // covers the harness's own header.
+    document.body.classList.toggle('bar-hidden', !visible)
   })
 }
 
 // Restore the last choice before the first paint, otherwise the bar shows and
 // then snaps away a frame later.
-if (!isConnectionView && localStorage.getItem(TOPBAR_KEY) === '1') shellManager!.setTopbarVisible(false)
+if (!isConnectionView && localStorage.getItem(TOPBAR_KEY) === '1') {
+  document.body.classList.add('bar-hidden')
+  shellManager!.setTopbarVisible(false)
+}
 
 function render(): void {
   tabsEl.textContent = ''
@@ -188,137 +160,12 @@ function renderTab(view: InstanceView, bare: boolean): HTMLElement {
   return tab
 }
 
-/** Shown as the image field's placeholder; the default image resolves in main. */
-const DEFAULT_IMAGE_PLACEHOLDER = 'ghcr.io/n0pe-sled/dsh-sandbox:latest'
-
-const MODES: Record<string, AddMode> = {  local: {
-    title: 'Add local dsh instance',
-    fields: [
-      { key: 'name', label: 'Name', placeholder: 'My local dsh', required: true },
-      {
-        key: 'sandbox',
-        label: 'Sandbox in a container (recommended)',
-        placeholder: '',
-        type: 'checkbox',
-        hint: 'Runs dsh inside a Docker/Podman container: filesystem, processes, and every helper it spawns stay in the sandbox. '
-          + 'Only mounted directories are shared. Unchecking this runs dsh directly on this machine.',
-      },
-      { key: 'image', label: 'Container image (optional)', placeholder: DEFAULT_IMAGE_PLACEHOLDER },
-      { key: 'dshPath', label: 'dsh executable (no sandbox only)', placeholder: 'dsh' },
-      { key: 'dshHome', label: 'DSH_HOME (no sandbox only)', placeholder: '/Users/me/.dsh' },
-    ],
-    async submit(values) {
-      const env = values.dshHome !== '' && values.dshHome !== undefined ? { DSH_HOME: values.dshHome } : undefined
-      const sandboxOn = values.sandbox === 'true'
-      await shellManager.addLocal({
-        name: values['name'] ?? 'local',
-        ...(!sandboxOn && values.dshPath !== undefined && values.dshPath !== '' ? { dshPath: values.dshPath } : {}),
-        ...(!sandboxOn && env !== undefined ? { env } : {}),
-        ...(sandboxOn
-          ? { sandbox: { enabled: true, ...(values.image !== undefined && values.image !== '' ? { image: values.image } : {}) } }
-          : { sandbox: { enabled: false } }),
-      })
-    },
-  },
-  ssh: {
-    title: 'Add SSH remote',
-    fields: [
-      { key: 'name', label: 'Name', placeholder: 'Work server', required: true },
-      { key: 'host', label: 'SSH host', placeholder: 'server.example.com', required: true },
-      { key: 'user', label: 'SSH user (optional)', placeholder: 'me' },
-      { key: 'port', label: 'SSH port (optional)', placeholder: '22', type: 'number' },
-      { key: 'remotePort', label: 'Remote dsh port', placeholder: '3000', type: 'number' },
-      { key: 'identityFile', label: 'Identity file (optional)', placeholder: '~/.ssh/id_ed25519' },
-      {
-        key: 'provision',
-        label: 'Ship this app\'s harness to the host',
-        placeholder: '',
-        type: 'checkbox',
-        hint: 'Runs our own staged harness there instead of using a dsh you installed. '
-          + 'Needs key-based ssh, node on the host, and about 300MB of disk. '
-          + 'With this on, the remote dsh port above is ignored.',
-      },
-      {
-        key: 'sandbox',
-        label: 'Run it in a sandbox container on the host (recommended)',
-        placeholder: '',
-        type: 'checkbox',
-        hint: 'Pulls the prebuilt sandbox image on the host and runs the harness in a container there. '
-          + 'Needs Docker on the remote host, and no node install or closure shipping. Unchecking this '
-          + 'ships the bare closure and uses the host\'s own node.',
-      },
-      { key: 'sandboxImage', label: 'Container image (optional)', placeholder: DEFAULT_IMAGE_PLACEHOLDER },
-    ],
-    async submit(values) {
-      const provision = values['provision'] === 'true'
-      const sandboxOn = values['sandbox'] === 'true'
-      await shellManager.addSsh({
-        name: values['name'] ?? 'ssh',
-        ssh: {
-          host: values['host'] ?? '',
-          ...(values['user'] !== undefined && values['user'] !== '' ? { user: values['user'] } : {}),
-          ...(numbers(values, 'port') !== undefined ? { port: numbers(values, 'port') } : {}),
-          // remotePort only means anything for a plain forward; a provisioned
-          // instance discovers its port, so storing the field would be a lie.
-          ...(!provision && numbers(values, 'remotePort') !== undefined ? { remotePort: numbers(values, 'remotePort') } : {}),
-          ...(values['identityFile'] !== undefined && values['identityFile'] !== '' ? { identityFile: values['identityFile'] } : {}),
-          ...(provision ? { provision: {}, ...(sandboxOn ? { sandbox: { enabled: true, ...(values['sandboxImage'] !== undefined && values['sandboxImage'] !== '' ? { image: values['sandboxImage'] } : {}) } } : { sandbox: { enabled: false } }) } : {}),
-        },
-      })
-    },
-  },
-  raw: {
-    title: 'Add remote URL (advanced)',
-    fields: [
-      { key: 'name', label: 'Name', placeholder: 'Home box', required: true },
-      { key: 'url', label: 'URL (http/https)', placeholder: 'https://dsh.example.com', required: true },
-    ],
-    async submit(values) {
-      await shellManager.addRaw({ name: values['name'] ?? 'raw', url: values['url'] ?? '' })
-    },
-  },
-}
-
-function numbers(values: Record<string, string>, key: string): number | undefined {
-  const raw = values[key]
-  if (raw === undefined || raw === '') return undefined
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
 function openModal(nextMode: AddMode): void {
   mode = nextMode
   modalTitle.textContent = nextMode.title
   if (isAddWindow) document.title = nextMode.title
-  modalFields.textContent = ''
-  for (const field of nextMode.fields) {
-    const label = document.createElement('label')
-    label.className = 'field'
-    const span = document.createElement('span')
-    span.textContent = field.label
-    const input = document.createElement('input')
-    input.name = field.key
-    input.placeholder = field.placeholder
-    input.type = field.type ?? 'text'
-    input.required = field.required ?? false
-    if (field.type === 'checkbox') {
-      label.classList.add('field-check')
-      // The checkbox reuses the same values map as every other field, so a
-      // checked box reads as the string 'true' rather than a separate shape.
-      input.value = 'true'
-      label.prepend(input)
-      label.append(span)
-    } else {
-      label.append(span, input)
-    }
-    if (field.hint !== undefined) {
-      const hint = document.createElement('small')
-      hint.className = 'field-hint'
-      hint.textContent = field.hint
-      label.append(hint)
-    }
-    modalFields.append(label)
-  }
+  // renderFields clears the container itself, so there is nothing to empty here.
+  renderFields(modalFields, nextMode.fields)
   modal.showModal()
   modalFields.querySelector<HTMLInputElement>('input')?.focus()
 }
@@ -337,14 +184,10 @@ function closeModal(): void {
 function doSubmit(): void {
   const current = mode
   if (current === undefined) return
-  const values: Record<string, string> = {}
-  for (const input of modalFields.querySelectorAll<HTMLInputElement>('input')) {
-    // An unchecked checkbox contributes nothing, so `values[key]` is absent
-    // rather than 'false', and the submit path tests for the string 'true'.
-    if (input.type === 'checkbox' && !input.checked) continue
-    values[input.name] = input.value.trim()
-  }
-  void current.submit(values)
+  // collectValues drops a switch that is off, so the submit path in add-modes.ts
+  // reads a missing key as off rather than 'false'.
+  const values = collectValues(modalFields)
+  void current.submit(shellManager!, values)
     .then(() => closeModal())
     .catch((error: unknown) => showError(error))
 }
@@ -357,24 +200,20 @@ modalForm.addEventListener('submit', (event) => {
 })
 
 document.getElementById('modal-cancel')?.addEventListener('click', closeModal)
-// The bar never hosts the form itself: adding happens in the modal window.
+// The bar never hosts the form itself: creating and launching instances belongs to
+// the instance manager window, so the bar keeps one way in rather than one button
+// per kind.
 if (!isConnectionView) {
-  for (const [buttonId, kind] of [
-    ['btn-local', 'local'],
-    ['btn-ssh', 'ssh'],
-    ['btn-raw', 'raw'],
-  ] as Array<[string, AddKind]>) {
-    document.getElementById(buttonId)?.addEventListener('click', () => shellManager!.openAdd(kind))
-  }
+  document.getElementById('btn-launch')?.addEventListener('click', () => shellManager!.openInstances())
 }
 
 if (isAddWindow && addKind !== null) {
-  const startMode = MODES[addKind]
-  if (startMode === undefined) {
+  const startKind = ADD_KINDS.find((kind) => kind === addKind)
+  if (startKind === undefined) {
     // A hand-written query is the only way to reach an unknown kind.
     window.close()
   } else {
-    openModal(startMode)
+    openModal(MODES[startKind])
   }
 }
 

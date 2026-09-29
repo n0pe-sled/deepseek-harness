@@ -1,23 +1,23 @@
 /**
- * AppWindow: one macOS BrowserWindow holding two WebContentsViews — a top bar
- * (session tabs + add buttons) and the dsh content view (custom protocol).
+ * AppWindow: one macOS BrowserWindow holding two WebContentsViews. The top bar
+ * carries the session tabs and the one Launch Instance button; the dsh content view
+ * shows the active instance, served over the app's own protocol. The add form, the
+ * connection log and the instance manager are child windows.
  */
 import { app, BrowserWindow, WebContentsView } from 'electron'
 import { IPC } from '../shared/ipc.ts'
-import type { AddKind, ConnectionLogMessage, ConnectionLogSnapshot } from '../shared/ipc.ts'
+import type { AddKind, AppTheme, ConnectionLogMessage, ConnectionLogSnapshot } from '../shared/ipc.ts'
+import type { InstanceView } from '../shared/instance.ts'
 import { APP_VIEW_HOST } from './protocol.ts'
+import { shellFrames } from './shell-layout.ts'
 
 export interface AppWindowOptions {
   managerPreload: string
   dshPreload: string
   managerHtml: string
+  /** The instance manager page, hosted in its own window. */
+  instancesHtml: string
 }
-
-/**
- * Height of the top bar. It has to clear the macOS traffic lights, which sit
- * inset over the window's top-left corner under `hiddenInset`.
- */
-export const TOPBAR_HEIGHT = 40
 
 /** Add-form window size per kind: the form height follows the field count.
  *  Width/height are outer-window, so ~28px of title bar is inside each height. */
@@ -33,16 +33,20 @@ export class AppWindow {
   private readonly content: WebContentsView
   private readonly managerPreload: string
   private readonly managerHtml: string
+  private readonly instancesHtml: string
   private topbarVisible = true
   private addModal: BrowserWindow | null = null
   private logWindow: BrowserWindow | null = null
   private logWindowTarget: string | undefined
   private logWindowReady: ((instanceId: string) => void) | undefined
+  private instancesWindow: BrowserWindow | null = null
+  private instancesReady: (() => void) | undefined
   private contentReady: (() => void) | undefined
 
   constructor(opts: AppWindowOptions) {
     this.managerPreload = opts.managerPreload
     this.managerHtml = opts.managerHtml
+    this.instancesHtml = opts.instancesHtml
     this.win = new BrowserWindow({
       width: 1280,
       height: 840,
@@ -165,6 +169,108 @@ export class AppWindow {
   }
 
   /**
+   * Open the instance manager window, or focus the one already open.
+   *
+   * Not `modal: true`, for the same reason as the log window: launching an
+   * instance takes tens of seconds while provisioning, and a modal would block
+   * the window the user is watching it from. One window rather than one per
+   * launch, because it exists to browse the saved instances and it carries its
+   * own selection.
+   */
+  openInstanceManager(): void {
+    if (this.instancesWindow !== null && !this.instancesWindow.isDestroyed()) {
+      this.instancesWindow.focus()
+      return
+    }
+
+    const win = new BrowserWindow({
+      width: 760,
+      height: 560,
+      parent: this.win,
+      show: false,
+      resizable: true,
+      minimizable: true,
+      maximizable: true,
+      fullscreenable: false,
+      autoHideMenuBar: true,
+      title: 'Instances',
+      backgroundColor: '#1a1d23',
+      webPreferences: {
+        preload: this.managerPreload,
+        contextIsolation: false,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    })
+    this.instancesWindow = win
+    // The list can change while this window is still loading, and those pushes
+    // are lost; a manager that loads after a launch would show stale rows.
+    win.webContents.on('did-finish-load', () => this.instancesReady?.())
+    win.once('ready-to-show', () => {
+      win.show()
+      win.focus()
+    })
+    win.on('closed', () => {
+      if (this.instancesWindow === win) this.instancesWindow = null
+    })
+    void win.loadFile(this.instancesHtml).catch(() => undefined)
+  }
+
+  /** Callback that yields the current instance list when the manager window loads. */
+  onInstanceManagerReady(handler: () => void): void {
+    this.instancesReady = handler
+  }
+
+  /** The instance manager window's webContents id, or undefined while it is closed. */
+  get instancesId(): number | undefined {
+    return this.instancesWindow === null || this.instancesWindow.isDestroyed()
+      ? undefined
+      : this.instancesWindow.webContents.id
+  }
+
+  /** Close the instance manager window, when it is open. */
+  closeInstanceManager(): void {
+    if (this.instancesWindow === null || this.instancesWindow.isDestroyed()) return
+    this.instancesWindow.close()
+  }
+
+  /**
+   * Every live shell page: the bar, the manager, the add form, and the log.
+   *
+   * Each of them carries the manager preload, and each paints from the active
+   * dsh theme, so they all take the same pushes.
+   */
+  private shellPages(): Electron.WebContents[] {
+    const windows = [this.instancesWindow, this.addModal, this.logWindow]
+    const pages = [this.topbar.webContents]
+    for (const win of windows) {
+      if (win !== null && !win.isDestroyed()) pages.push(win.webContents)
+    }
+    return pages.filter((page) => !page.isDestroyed())
+  }
+
+  /** Whether a renderer is one of this window's own shell pages. */
+  isShellPage(webContentsId: number | undefined): boolean {
+    if (webContentsId === undefined) return false
+    return this.shellPages().some((page) => page.id === webContentsId)
+  }
+
+  /** Push the instance list to every shell page displaying it. */
+  sendManagerUpdate(views: InstanceView[]): void {
+    for (const page of this.shellPages()) page.send(IPC.managerUpdate, views)
+  }
+
+  /** Tell every shell page which instance is active. */
+  sendActiveChanged(id: string | undefined): void {
+    for (const page of this.shellPages()) page.send(IPC.managerActiveChanged, id)
+  }
+
+  /** Push the active theme to every shell page painting from it. */
+  sendTheme(theme: AppTheme): void {
+    for (const page of this.shellPages()) page.send(IPC.managerTheme, theme)
+  }
+
+  /**
    * Open the connection-log window for one instance, or focus the one already
    * showing it.
    *
@@ -268,10 +374,11 @@ export class AppWindow {
 
   private layout(): void {
     const size = this.win.getContentSize()
-    const width = size[0] ?? 0
-    const height = size[1] ?? 0
-    const bar = this.topbarVisible ? TOPBAR_HEIGHT : 0
-    this.topbar.setBounds({ x: 0, y: 0, width, height: bar })
-    this.content.setBounds({ x: 0, y: bar, width, height: Math.max(height - bar, 0) })
+    // The bar stays mounted while hidden and paints nothing there: its strip is
+    // the only drag handle above the content pane, and insetting the content by
+    // the same strip keeps the traffic lights off the harness's own header.
+    const frames = shellFrames(size[0] ?? 0, size[1] ?? 0, this.topbarVisible)
+    this.topbar.setBounds(frames.topbar)
+    this.content.setBounds(frames.content)
   }
 }

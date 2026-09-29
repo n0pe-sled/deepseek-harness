@@ -34,7 +34,13 @@ export default defineConfig({
   renderer: {
     build: {
       rollupOptions: {
-        input: { index: resolve(root, 'src/renderer/index.html') },
+        // One page per shell window: the top bar (which also serves the add
+        // modal, the connection log window, and the in-tab connection view)
+        // and the instance manager.
+        input: {
+          index: resolve(root, 'src/renderer/index.html'),
+          instances: resolve(root, 'src/renderer/instances.html'),
+        },
       },
     },
   },

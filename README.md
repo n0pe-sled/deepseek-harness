@@ -5,13 +5,15 @@ A macOS Electron shell that loads instances of [DeepSeek Harness](https://github
 ## Features
 
 - **Top bar + one active view**: session tabs sit in a bar across the window top; the active instance's full dsh web UI fills the pane below it.
+- **Instance manager (⌘⇧L)**: one `+ Launch Instance` button in the top bar opens a window with the saved instances listed on the left. Select one and launch it, or start a new one as a local dsh, an SSH remote, or a remote URL. A first run seeds this machine's local dsh, so the list is never empty.
+- **Switch-first SSH form**: the SSH form leads with the two questions that decide how the connection is made, as switches that are on by default. Ship this app's harness to the host, and run it in a sandbox container there.
 - **Local instances**: the app spawns and supervises `dsh web --port 0 --no-open` itself — the harness it ships, or any executable path you configure — parses the readiness URL, and cleans up on quit.
 - **SSH remotes (recommended)**: `ssh -N -L` tunnels make a remote dsh appear as `127.0.0.1`, so dsh's loopback-pinned privileged methods (settings, credentials, native dialogs) work.
 - **Raw URL remotes (advanced)**: connect to any http(s) dsh origin; note dsh pins privileged methods to loopback, so those calls will be refused.
 - **No harness changes**: the app consumes the harness's public `__DSH_TRANSPORT__` carrier seam; the UI it renders is byte-identical to what each instance serves.
 - **Theme-matched shell**: the top bar, window background, and hover states repaint from the active dsh theme's resolved `--dsw-alias-*` tokens (including themes from the `herdr-themes` plugin), so the shell blends with the content pane.
-- **Native menu**: File adds instances (⌘L local, ⌘⇧S SSH, ⌘⇧U raw URL). View → Show Session Bar (⌘B) drops the bar and hands the content pane the whole window.
-- **Draggable top edge**: the bar is a drag handle, and a thin transparent strip is injected over the top of the content pane, so the window can be grabbed anywhere along its top edge.
+- **Native menu**: File → Launch Instance… (⌘⇧L) opens the instance manager, and the per-kind entries (⌘L local, ⌘⇧S SSH, ⌘⇧U raw URL) open one add form directly. View → Show Session Bar (⌘B) drops the bar and hands the content pane the whole window.
+- **Draggable top edge**: the bar is a drag handle, and a thin transparent strip is injected over the top of the content pane, so the window can be grabbed anywhere along its top edge. Hidden (⌘B), the bar keeps the 28pt traffic-light strip as that handle and paints nothing inside it, and the content pane starts below the strip, so the lights never land on a running instance's own header.
 
 ## Architecture
 
@@ -22,7 +24,11 @@ Electron main (Node)
  ├─ StreamBridge: ws:// downlinks for events.mux / events.host → IPC frames
  └─ dsh-app://<instanceId>/ protocol → reverse-proxy to instance endpoint
 
-Renderer (dsh content view)
+Renderer
+ ├─ top bar (one page, `?add=` / `?log=` / `?connection=` duties)
+ └─ instance manager window: saved instances, launch, new instance
+
+Content view (dsh page)
  └─ preload installs __DSH_TRANSPORT__ = { createApiClient, fetch }
      IpcApiClient: same four-quadrant wire invariants as AbstractApiClient
      (rpcId mint/echo), version-agnostic method generation
@@ -31,6 +37,8 @@ Renderer (dsh content view)
 Why a custom scheme instead of `file://`? dsh's boot manifest references absolute `/assets/*` and `/plugins/*/client.js` URLs that only the host can serve. A custom protocol proxies those; the API/streams stay on IPC, so the trust fence is never spoofed.
 
 Why a loopback host? The harness client gates every settings surface (Models, Plugins, General) on the page origin being loopback-classified (`connection.isLoopback`). A non-loopback origin puts the describe mirror in process-local mode and the UI reports "settings are unavailable in this browser". The content view therefore loads from a per-instance `127.a.b.c` host (`dsh-app://<loopbackHost>/`), which keeps the proxy architecture while satisfying the client's loopback check; distinct hosts per instance keep per-origin state isolated.
+
+Why is the instance manager a window and not an overlay? The top bar is a 40px `WebContentsView`, so a dropdown would be clipped by the view it is drawn in. It is a child window the way the add form and the connection log are, and it is not `modal: true` for the same reason the log window is not: launching a provisioned remote takes tens of seconds, and the user watches it from the window behind.
 
 ## Development
 

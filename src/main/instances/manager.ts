@@ -30,6 +30,9 @@ type ManagedHandle = LocalHandle | SshTunnelHandle | { endpoint: string }
  *  failure cannot grow without bound. */
 const LOG_LIMIT = 500
 
+/** Name of the seeded default instance: this machine's local dsh. */
+export const DEFAULT_LOCAL_NAME = 'Local'
+
 interface Managed {
   config: InstanceConfig
   runtime: InstanceRuntime
@@ -69,6 +72,19 @@ export class InstanceManager {
     this.activeId = this.store.getActive()
     // Only keep the active hint when the instance still exists.
     if (this.activeId !== undefined && !this.managed.has(this.activeId)) this.activeId = undefined
+  }
+
+  /**
+   * Seed the app's own local dsh when nothing is saved.
+   *
+   * The instance manager opens on the saved list, so an empty store is a dead end
+   * on a first run. The default is the local dsh this app ships, and it stays a
+   * saved record until the user removes it. Nothing starts here, so seeding a first
+   * run costs no process.
+   */
+  seedDefaultLocal(): void {
+    if (this.managed.size > 0) return
+    this.addLocal({ name: DEFAULT_LOCAL_NAME })
   }
 
   subscribe(listener: (views: InstanceView[]) => void): () => void {

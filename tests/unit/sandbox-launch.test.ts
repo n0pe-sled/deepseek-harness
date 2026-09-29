@@ -1,13 +1,19 @@
 /**
  * Sandbox command construction, without a container daemon: the argv ordering
  * rule (app flags, then user args, then image), the built-in defaults, the
- * port parser, and the remote launch command's shape.
+ * port parser, runtime detection against fake CLIs, and the remote launch
+ * command's shape.
  */
-import { describe, expect, it } from 'vitest'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   buildDockerRunArgs,
   buildRemoteSandboxCommand,
   containerName,
+  detectRuntime,
+  noRuntimeMessage,
   parseDockerPort,
   resolveSandboxOptions,
 } from '../../src/main/instances/sandbox.ts'
@@ -126,5 +132,91 @@ describe('containerName', () => {
   it('is stable per instance id, so a reconnect adopts the container', () => {
     expect(containerName('abc')).toBe(containerName('abc'))
     expect(containerName('abc')).toBe('dsh-sandbox-abc')
+  })
+})
+
+/**
+ * Runtime detection against fake CLIs, so the branches are covered without a
+ * daemon: which CLI wins, and which of the two faults the error names. The
+ * caller owns PATH widening (`containerPath`), so detection trusts the
+ * environment it is handed and these fixtures control what it can see.
+ */
+describe('detectRuntime', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-'))
+  const onlyDir = join(root, 'only')
+  const bothDir = join(root, 'both')
+  const deadDir = join(root, 'dead')
+  const quiet = (): void => undefined
+  const shim = (dir: string, name: string, script: string): void => {
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, name)
+    writeFileSync(file, `#!/bin/sh\n${script}\n`)
+    chmodSync(file, 0o755)
+  }
+
+  beforeAll(() => {
+    shim(onlyDir, 'podman', 'exit 0')
+    shim(bothDir, 'docker', 'exit 0')
+    shim(bothDir, 'podman', 'exit 0')
+    shim(deadDir, 'docker', 'echo "failed to connect to the docker API" >&2\nexit 1')
+  })
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  const envWith = (pathValue: string): NodeJS.ProcessEnv => ({ PATH: pathValue })
+
+  it('prefers docker and returns its absolute path for the later spawns', async () => {
+    const runtime = await detectRuntime(quiet, envWith(bothDir))
+    expect(runtime.cli).toBe('docker')
+    expect(runtime.bin).toBe(join(bothDir, 'docker'))
+  })
+
+  it('falls back to podman when docker is absent', async () => {
+    const runtime = await detectRuntime(quiet, envWith(onlyDir))
+    expect(runtime.cli).toBe('podman')
+    expect(runtime.bin).toBe(join(onlyDir, 'podman'))
+  })
+
+  it('carries the environment into the returned runtime', async () => {
+    const env = envWith(onlyDir)
+    expect((await detectRuntime(quiet, env)).env).toBe(env)
+  })
+
+  it('reports a missing runtime and names where it looked', async () => {
+    const promise = detectRuntime(quiet, envWith(join(root, 'nowhere')))
+    await expect(promise).rejects.toThrow(/no container runtime found/)
+    await expect(promise).rejects.toThrow(/Install one to use the sandbox/)
+    await expect(promise).rejects.toThrow(join(root, 'nowhere'))
+  })
+
+  it('names an installed CLI whose daemon did not answer, not an installer', async () => {
+    const promise = detectRuntime(quiet, envWith(deadDir))
+    await expect(promise).rejects.toThrow(/docker is installed at .*dead\/docker but did not answer/)
+    await expect(promise).rejects.toThrow(/failed to connect to the docker API/)
+    await expect(promise).rejects.toThrow(/Start Docker Desktop/)
+    await expect(promise).rejects.not.toThrow(/no container runtime found/)
+  })
+
+  it('logs one line per candidate so the connection log explains the failure', async () => {
+    const lines: string[] = []
+    await detectRuntime((line) => lines.push(line), envWith(deadDir)).catch(() => undefined)
+    expect(lines.join('\n')).toContain('docker: found at')
+    expect(lines.join('\n')).toContain('podman: not installed')
+  })
+})
+
+describe('noRuntimeMessage', () => {
+  it('tells a stopped daemon apart from a missing install', () => {
+    const stopped = noRuntimeMessage([{ cli: 'docker', bin: '/usr/local/bin/docker', failure: 'daemon down' }], '/usr/bin')
+    expect(stopped).toContain('docker is installed at /usr/local/bin/docker')
+    expect(stopped).toContain('Start Docker Desktop')
+    expect(stopped).not.toContain('Install one')
+
+    const missing = noRuntimeMessage([{ cli: 'docker' }, { cli: 'podman' }], '/usr/bin:/usr/local/bin')
+    expect(missing).toContain('no container runtime found')
+    expect(missing).toContain('/usr/local/bin')
+    expect(missing).toContain('Install one to use the sandbox')
   })
 })

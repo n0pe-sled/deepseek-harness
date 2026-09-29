@@ -14,8 +14,10 @@ export const IPC = {
   managerDisconnect: 'manager:disconnect',
   managerActive: 'manager:get-active',
   managerPickDsh: 'manager:pick-dsh',
-  /** shell → main: open the add-instance modal window for one kind. */
-  managerOpenAdd: 'manager:open-add',
+  /** shell → main: open (or focus) the instance manager window. */
+  managerOpenInstances: 'manager:open-instances',
+  /** instance manager → main: close its own window once a launch is under way. */
+  managerCloseInstances: 'manager:close-instances',
   /** shell → main: the connection log for one instance. */
   managerGetLog: 'manager:get-log',
   /** shell → main: open (or focus) the connection-log window for one instance. */
