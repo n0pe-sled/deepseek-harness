@@ -7,6 +7,7 @@
 import { app, BrowserWindow, WebContentsView } from 'electron'
 import { IPC } from '../shared/ipc.ts'
 import type { AddKind, AppTheme, ConnectionLogMessage, ConnectionLogSnapshot } from '../shared/ipc.ts'
+import type { UpdateSnapshot } from '../shared/update.ts'
 import type { InstanceView } from '../shared/instance.ts'
 import { APP_VIEW_HOST } from './protocol.ts'
 import { shellFrames } from './shell-layout.ts'
@@ -41,6 +42,8 @@ export class AppWindow {
   private logWindowReady: ((instanceId: string) => void) | undefined
   private instancesWindow: BrowserWindow | null = null
   private instancesReady: (() => void) | undefined
+  private updateWindow: BrowserWindow | null = null
+  private updateReady: (() => void) | undefined
   private contentReady: (() => void) | undefined
 
   constructor(opts: AppWindowOptions) {
@@ -235,13 +238,80 @@ export class AppWindow {
   }
 
   /**
-   * Every live shell page: the bar, the manager, the add form, and the log.
+   * Open the update window, or focus the one already open.
+   *
+   * Not `modal: true`, for the same reason as the log window: a download runs
+   * for minutes, and a modal would block the app it is updating. The window is
+   * the fourth duty of the shell page, loaded with `?update=1`.
+   */
+  openUpdateWindow(): void {
+    if (this.updateWindow !== null && !this.updateWindow.isDestroyed()) {
+      this.updateWindow.show()
+      this.updateWindow.focus()
+      // A check can finish while this window is already open, and the page that
+      // missed that push would show a state one step behind.
+      this.updateReady?.()
+      return
+    }
+
+    const win = new BrowserWindow({
+      width: 620,
+      height: 520,
+      parent: this.win,
+      show: false,
+      resizable: true,
+      minimizable: true,
+      maximizable: false,
+      fullscreenable: false,
+      autoHideMenuBar: true,
+      title: 'Software Update',
+      backgroundColor: '#1a1d23',
+      webPreferences: {
+        preload: this.managerPreload,
+        contextIsolation: false,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    })
+    this.updateWindow = win
+    win.webContents.on('did-finish-load', () => this.updateReady?.())
+    win.once('ready-to-show', () => {
+      win.show()
+      win.focus()
+    })
+    win.on('closed', () => {
+      if (this.updateWindow === win) this.updateWindow = null
+    })
+    void win.loadFile(this.managerHtml, { query: { update: '1' } }).catch(() => undefined)
+  }
+
+  /** Callback that yields the current update state when that window loads. */
+  onUpdateWindowReady(handler: () => void): void {
+    this.updateReady = handler
+  }
+
+  /** The update window's webContents id, or undefined while it is closed. */
+  get updateId(): number | undefined {
+    return this.updateWindow === null || this.updateWindow.isDestroyed()
+      ? undefined
+      : this.updateWindow.webContents.id
+  }
+
+  /** Forward an update snapshot to the update window, if it is open. */
+  sendUpdate(snapshot: UpdateSnapshot): void {
+    if (this.updateWindow === null || this.updateWindow.isDestroyed()) return
+    this.updateWindow.webContents.send(IPC.updateState, snapshot)
+  }
+
+  /**
+   * Every live shell page: the bar, the manager, the add form, the log, and the
+   * update window.
    *
    * Each of them carries the manager preload, and each paints from the active
    * dsh theme, so they all take the same pushes.
    */
   private shellPages(): Electron.WebContents[] {
-    const windows = [this.instancesWindow, this.addModal, this.logWindow]
+    const windows = [this.instancesWindow, this.addModal, this.logWindow, this.updateWindow]
     const pages = [this.topbar.webContents]
     for (const win of windows) {
       if (win !== null && !win.isDestroyed()) pages.push(win.webContents)

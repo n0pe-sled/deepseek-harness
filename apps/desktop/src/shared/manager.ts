@@ -1,6 +1,5 @@
 import type { AddLocalInput, AddRawInput, AddSshInput, InstanceView } from './instance.ts'
-import type { AppTheme, ConnectionLogSnapshot } from './ipc.ts'
-
+import type { AppTheme, ConnectionLogSnapshot, DshUpdateApi } from './ipc.ts'
 /** The manager API exposed to the shell page as window.dshManager. */
 export interface DshManagerApi {
   list(): Promise<InstanceView[]>
@@ -34,4 +33,10 @@ export interface DshManagerApi {
   onTheme(cb: (theme: AppTheme) => void): () => void
   /** Pull the current theme on boot (side-steps a startup race). */
   getTheme(): Promise<AppTheme | undefined>
+  /**
+   * The app's own update check. Grouped under one member rather than spread
+   * across this interface, because that API already names a subscription
+   * `onUpdate` for the instance list.
+   */
+  readonly update: DshUpdateApi
 }

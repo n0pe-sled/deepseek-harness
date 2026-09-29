@@ -1,7 +1,10 @@
 import type { InstanceView } from '../shared/instance.ts'
 import { isLogRetarget } from '../shared/ipc.ts'
 import type { ConnectionLogMessage, ConnectionLogSnapshot, DshConnectionApi } from '../shared/ipc.ts'
+import { isUpdatePending } from '../shared/update.ts'
+import type { UpdateSnapshot } from '../shared/update.ts'
 import type { DshManagerApi } from '../shared/manager.ts'
+import type { DshUpdateApi } from '../shared/ipc.ts'
 import { ADD_KINDS, MODES, collectValues, renderFields } from './add-modes.ts'
 import type { AddMode } from './add-modes.ts'
 import { applyTheme } from './theme.ts'
@@ -21,10 +24,13 @@ const modalTitle = document.getElementById('modal-title') as HTMLElement
 const modalFields = document.getElementById('modal-fields') as HTMLElement
 const modalForm = document.getElementById('modal-form') as HTMLFormElement
 const modalOk = document.getElementById('modal-ok') as HTMLButtonElement
+const updateBadge = document.getElementById('btn-update') as HTMLButtonElement
 
 let views: InstanceView[] = []
 let activeId: string | undefined
 let mode: AddMode | undefined
+/** The last update state main pushed, for the bar's own badge. */
+let updateState: UpdateSnapshot | undefined
 
 // One page serves three duties, chosen by query parameter: the shell top bar
 // (no parameter), the add-instance modal (`?add=<kind>`), the log window
@@ -43,6 +49,12 @@ const isConnectionView = connectionIdForBoot !== null
 const addKind = new URLSearchParams(window.location.search).get('add')
 const isAddWindow = addKind !== null
 if (isAddWindow) document.body.classList.add('add-window')
+
+// The update window is a window of its own, loaded with `?update=1`. It carries
+// the manager preload like the other shell pages, and it needs the section below
+// plus one class so the bar chrome stays out of it.
+const isUpdateView = new URLSearchParams(window.location.search).get('update') !== null
+if (isUpdateView) document.body.classList.add('update-window')
 
 const shellManager: DshManagerApi | undefined = window.dshManager
 
@@ -85,6 +97,23 @@ function render(): void {
   // One session is not a tab strip. Show it as a plain status chip instead.
   tabsEl.style.display = views.length === 0 ? 'none' : ''
   hintEl.style.display = views.length === 0 ? '' : 'none'
+}
+
+/**
+ * The badge the launch check leaves behind: visible only while an update is
+ * waiting on the user. A check that finds nothing paints nothing, which is what
+ * makes the launch check silent.
+ */
+function renderUpdateBadge(): void {
+  const snapshot = updateState
+  if (snapshot === undefined || !isUpdatePending(snapshot)) {
+    updateBadge.hidden = true
+    return
+  }
+  updateBadge.hidden = false
+  const version = snapshot.latestVersion ?? 'a newer release'
+  updateBadge.textContent = snapshot.phase === 'ready' ? 'Relaunch to update' : `Update ${version}`
+  updateBadge.title = `DSH Desktop ${version} is available. Open the update window.`
 }
 
 function renderTab(view: InstanceView, bare: boolean): HTMLElement {
@@ -205,6 +234,17 @@ document.getElementById('modal-cancel')?.addEventListener('click', closeModal)
 // per kind.
 if (!isConnectionView) {
   document.getElementById('btn-launch')?.addEventListener('click', () => shellManager!.openInstances())
+  // The badge is the launch check's only visible effect, and clicking it is the
+  // way into the window that can actually install the release.
+  updateBadge.addEventListener('click', () => shellManager!.update.openWindow())
+  shellManager!.update.onState((snapshot: UpdateSnapshot) => {
+    updateState = snapshot
+    renderUpdateBadge()
+  })
+  void shellManager!.update.get().then((snapshot: UpdateSnapshot) => {
+    updateState = snapshot
+    renderUpdateBadge()
+  }).catch(() => undefined)
 }
 
 if (isAddWindow && addKind !== null) {
@@ -347,6 +387,170 @@ if (connectionId !== null) {
   })
 
   void refreshConnection()
+}
+
+// ---- Update window ---------------------------------------------------------
+// The last duty of this page, loaded by main with ?update=1. It reports what the
+// check found, and the actions the user takes on it. Everything it shows comes
+// from the released feed, and a release body is remote content, so the notes are
+// set as text rather than as markup.
+
+const updateManager: DshUpdateApi | undefined = isUpdateView ? shellManager?.update : undefined
+
+if (updateManager !== undefined) {
+  const updateView = document.getElementById('updateview') as HTMLElement
+  const updateVersion = document.getElementById('u-version') as HTMLElement
+  const updatePhase = document.getElementById('u-phase') as HTMLElement
+  const updateSummary = document.getElementById('u-summary') as HTMLElement
+  const updateReason = document.getElementById('u-reason') as HTMLElement
+  const updateBar = document.getElementById('u-bar') as HTMLElement
+  const updateBarFill = document.getElementById('u-bar-fill') as HTMLElement
+  const updateNotes = document.getElementById('u-notes') as HTMLElement
+  const updateLogWrap = document.getElementById('u-logwrap') as HTMLDetailsElement
+  const updateLog = document.getElementById('u-log') as HTMLElement
+  const updateCheck = document.getElementById('u-check') as HTMLButtonElement
+  const updateDownload = document.getElementById('u-download') as HTMLButtonElement
+  const updateInstall = document.getElementById('u-install') as HTMLButtonElement
+  const updateSkip = document.getElementById('u-skip') as HTMLButtonElement
+  const updateRelease = document.getElementById('u-release') as HTMLButtonElement
+
+  updateView.hidden = false
+
+  const formatBytes = (bytes: number): string => {
+    const mb = bytes / (1024 * 1024)
+    return mb < 1024 ? `${mb.toFixed(1)} MB` : `${(mb / 1024).toFixed(2)} GB`
+  }
+
+  /** What the window says about the state, in one line. */
+  const summaryFor = (snapshot: UpdateSnapshot): string => {
+    const version = snapshot.latestVersion
+    switch (snapshot.phase) {
+      case 'idle':
+        return snapshot.skipped === true
+          ? `${snapshot.latestVersion ?? 'That version'} was skipped, and stays skipped until something newer appears.`
+          : 'This is the newest release.'
+      case 'checking':
+        return 'Checking the release feed…'
+      case 'available':
+        return `${version ?? 'A newer release'} is available.`
+      case 'downloading': {
+        const received = snapshot.receivedBytes ?? 0
+        const total = snapshot.totalBytes ?? 0
+        return total > 0
+          ? `Downloading ${formatBytes(received)} of ${formatBytes(total)}…`
+          : `Downloading ${formatBytes(received)}…`
+      }
+      case 'ready':
+        return 'The update is downloaded. Installing replaces this app and relaunches it.'
+      case 'installing':
+        return 'Installing. This app quits so the installer can replace it, and comes back on the new version.'
+      case 'error':
+        return `${version === undefined ? 'The update check' : `Version ${version}`} did not complete.`
+      case 'unsupported':
+        return 'This build cannot update itself.'
+    }
+  }
+
+  /** The progress bar, shown only while a total is known. */
+  const paintProgress = (snapshot: UpdateSnapshot): void => {
+    const received = snapshot.receivedBytes ?? 0
+    const total = snapshot.totalBytes ?? 0
+    if (snapshot.phase !== 'downloading' || total <= 0) {
+      updateBar.hidden = true
+      return
+    }
+    updateBar.hidden = false
+    updateBarFill.style.width = `${String(Math.min(100, Math.round((received / total) * 100)))}%`
+  }
+
+  const paintUpdate = (snapshot: UpdateSnapshot): void => {
+    updateVersion.textContent = [
+      `This build: ${snapshot.version} (${snapshot.arch})`,
+      ...(snapshot.installTarget === undefined ? [] : [`installs to ${snapshot.installTarget}`]),
+    ].join(' · ')
+    updatePhase.textContent = snapshot.phase
+    updatePhase.className = `log-status ${snapshot.phase}`
+    updateSummary.textContent = summaryFor(snapshot)
+    updateReason.hidden = snapshot.reason === undefined
+    updateReason.textContent = snapshot.reason ?? ''
+    paintProgress(snapshot)
+
+    updateNotes.hidden = snapshot.notes === undefined
+    updateNotes.textContent = snapshot.notes ?? ''
+
+    const busy = snapshot.phase === 'checking' || snapshot.phase === 'downloading'
+    updateCheck.disabled = busy || snapshot.phase === 'installing'
+    updateCheck.textContent = snapshot.phase === 'checking' ? 'Checking…' : 'Check Again'
+    updateDownload.hidden = snapshot.phase !== 'available'
+    updateDownload.disabled = busy
+    updateInstall.hidden = snapshot.phase !== 'ready'
+    updateInstall.disabled = busy
+    updateSkip.hidden = snapshot.phase !== 'available'
+    updateSkip.disabled = snapshot.skipped === true
+    // A release page is only useful when the feed named one.
+    updateRelease.hidden = snapshot.releaseUrl === undefined
+  }
+
+  /** Show the installer's log, or hide the section when there is none yet. */
+  const loadLog = async (): Promise<void> => {
+    const tail = await updateManager.log()
+    const trimmed = tail?.trimEnd() ?? ''
+    updateLogWrap.hidden = trimmed === ''
+    updateLog.textContent = trimmed
+  }
+
+  /** Every action answers with a fresh state, so the window never guesses. */
+  const runAction = (
+    action: () => Promise<UpdateSnapshot | undefined>,
+    onError: (error: unknown) => void,
+  ): void => {
+    void action().then((snapshot) => {
+      if (snapshot !== undefined) paintUpdate(snapshot)
+    }).catch(onError)
+  }
+
+  const actionFailed = (error: unknown): void => {
+    updateReason.hidden = false
+    updateReason.textContent = error instanceof Error ? error.message : String(error)
+    // The installer's log is the only place a failed install explains itself, so
+    // the window pulls it in whenever an action fails.
+    void loadLog()
+  }
+
+  updateCheck.addEventListener('click', () => {
+    runAction(async () => updateManager.check(), actionFailed)
+  })
+  updateDownload.addEventListener('click', () => {
+    runAction(async () => updateManager.download(), actionFailed)
+  })
+  updateInstall.addEventListener('click', () => {
+    runAction(async () => updateManager.install(), actionFailed)
+  })
+  updateSkip.addEventListener('click', () => {
+    runAction(async () => updateManager.skip(), actionFailed)
+  })
+  updateLogWrap.addEventListener('toggle', () => {
+    if (updateLogWrap.open) void loadLog()
+  })
+  updateRelease.addEventListener('click', () => {
+    // The URL comes back with the state, and only the https one that does is
+    // handed to the browser, so a feed cannot aim this at another scheme.
+    const url = updateState?.releaseUrl
+    if (url !== undefined) updateManager.openRelease(url)
+  })
+
+  updateManager.onState((snapshot: UpdateSnapshot) => {
+    updateState = snapshot
+    paintUpdate(snapshot)
+    // An install ends in this process quitting, so its outcome is only readable
+    // in the run that came back. Pull the log once there is something to say.
+    if (snapshot.phase === 'error') void loadLog()
+  })
+  void updateManager.get().then((snapshot: UpdateSnapshot) => {
+    updateState = snapshot
+    paintUpdate(snapshot)
+    if (snapshot.phase === 'error') void loadLog()
+  }).catch(actionFailed)
 }
 
 function showError(error: unknown): void {

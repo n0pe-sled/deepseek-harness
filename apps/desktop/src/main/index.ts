@@ -3,11 +3,13 @@
  * Wires: instance store/manager, API + stream bridges, the dsh-app protocol,
  * and the app window, with clean shutdown of children and tunnels.
  */
-import { app, dialog, ipcMain, Menu } from 'electron'
+import { app, dialog, ipcMain, Menu, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { open } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { IPC, type AddKind, type AppTheme, type ConnectionLogSnapshot } from '../shared/ipc.ts'
+import { IPC, UPDATE_LOG_TAIL_BYTES, type AddKind, type AppTheme, type ConnectionLogSnapshot } from '../shared/ipc.ts'
+import type { UpdateSnapshot } from '../shared/update.ts'
 import type {
   AddLocalInput,
   AddRawInput,
@@ -20,10 +22,11 @@ import { bundledHarnessRoot } from './instances/bundled.ts'
 import { ApiBridge } from './bridge/api.ts'
 import { StreamBridge } from './bridge/streams.ts'
 import { registerProtocolHandler, registerSchemePrivileges, connectionViewUrl } from './protocol.ts'
-import { buildShellMenu, setTopbarChecked } from './menu.ts'
+import { buildShellMenu, setTopbarChecked, setUpdatesEnabled } from './menu.ts'
 import { AppWindow } from './window.ts'
 import { runSmoke } from './smoke.ts'
-
+import { AppUpdater, UPDATE_LOG_PATH } from './update/index.ts'
+import { enclosingBundle } from './update/install.ts'
 // Dev/testing affordance: point userData elsewhere so a dev build can run
 // beside an installed copy holding the default profile's single-instance lock.
 const userDataOverride = process.env.DSH_USER_DATA
@@ -44,6 +47,11 @@ async function main(): Promise<void> {
   const outDir = fileURLToPath(new URL('.', import.meta.url))
   const preloadDir = join(outDir, '..', 'preload')
   const rendererDir = join(outDir, '..', 'renderer')
+
+  // Quit semantics: stop local children and SSH tunnels, then exit. Declared
+  // here because the updater's install asks for the quit before the block below
+  // installs the handlers.
+  let quitting = false
 
   const store = new InstanceStore(app.getPath('userData'))
   const manager = new InstanceManager(store, describeHost, {
@@ -81,6 +89,20 @@ async function main(): Promise<void> {
     const active = manager.getActive()
     if (active !== undefined) appWindow.sendConnection(logSnapshot(manager, active))
   })
+  // The update window pulls the current state on boot, for the same startup race
+  // the log window has: a check can finish before that page subscribes.
+  appWindow.onUpdateWindowReady(() => appWindow.sendUpdate(updater.state()))
+
+  // The bundle an install replaces is read from this process's own executable
+  // path, so a development run has none and cannot replace itself.
+  const updater = new AppUpdater({
+    version: app.getVersion(),
+    arch: process.arch,
+    installable: app.isPackaged && enclosingBundle(process.execPath) !== undefined,
+    userDataDir: app.getPath('userData'),
+    ...(process.env.DSH_UPDATE_REPO === undefined ? {} : { repo: process.env.DSH_UPDATE_REPO }),
+  })
+  void updater.load().catch(() => undefined)
 
   const deps = {
     contentWebContentsId: () => appWindow.contentId,
@@ -139,6 +161,16 @@ async function main(): Promise<void> {
   applyActive()
 
   registerManagerIpc(manager, appWindow, applyActive)
+  registerUpdateIpc(updater, appWindow)
+
+  // Two duties in one subscription: the window renders the state, and the menu
+  // item dims itself when this build cannot replace its own bundle. Subscribed
+  // where the menu exists, because the dimming reaches for it.
+  const paintUpdates = (): void => {
+    const snapshot = updater.state()
+    appWindow.sendUpdate(snapshot)
+    setUpdatesEnabled(shellMenu, snapshot.phase !== 'unsupported')
+  }
 
   // Match the shell chrome to the active dsh theme: the content page reports
   // its resolved tokens, we paint the native window and forward to the shell
@@ -175,12 +207,31 @@ async function main(): Promise<void> {
     onAdd: (kind: AddKind) => appWindow.openAddModal(kind),
     onLaunchInstance: () => appWindow.openInstanceManager(),
     onToggleTopbar: () => applyTopbar(!topbarVisible),
+    onCheckForUpdates: () => {
+      appWindow.openUpdateWindow()
+      // The window shows the previous result the moment it opens, so a check that
+      // already ran is visible while this one is still in flight.
+      void updater.check().catch(() => undefined)
+    },
   })
   setTopbarChecked(shellMenu, topbarVisible)
   Menu.setApplicationMenu(shellMenu)
 
   // The shell restores its stored preference once it boots.
   ipcMain.on(IPC.uiTopbarSet, (_event, visible: boolean) => applyTopbar(visible !== false))
+
+  setUpdatesEnabled(shellMenu, updater.state().phase !== 'unsupported')
+  updater.subscribe(paintUpdates)
+
+  // One check per launch, and it speaks up only when something is newer: a dialog
+  // about being current, or about a network blip, would make it a nuisance. What
+  // it finds reaches the session bar as a badge and nothing else: a window that
+  // opened itself would take the screen away from the session being worked in.
+  if (process.env.DSH_UPDATE_AUTOSTART !== '0') {
+    setTimeout(() => {
+      void updater.check({ silent: true }).catch(() => undefined)
+    }, UPDATE_CHECK_DELAY_MS)
+  }
 
   if (process.env.DSH_SMOKE === '1') {
     const code = await runSmoke(manager, appWindow, applyActive)
@@ -189,11 +240,22 @@ async function main(): Promise<void> {
     return
   }
 
-  // Quit semantics: stop local children and SSH tunnels, then exit.
-  let quitting = false
+  // Quit semantics: stop local children and SSH tunnels, then exit. An install
+  // asks for the same quit below, because the installer waits for this process to
+  // exit before it touches the bundle.
   app.on('before-quit', (event) => {
     if (quitting) return
     event.preventDefault()
+    quitting = true
+    streamBridge.closeAll()
+    void manager.stopAll().finally(() => {
+      app.quit()
+    })
+  })
+  // An install is launched before the app quits, and it waits for that exit. From
+  // here on the quit is the install's, so nothing may hold it up and the streams
+  // and children stop before it starts moving the bundle.
+  updater.onInstallStarted(() => {
     quitting = true
     streamBridge.closeAll()
     void manager.stopAll().finally(() => {
@@ -207,6 +269,9 @@ async function main(): Promise<void> {
     appWindow.win.show()
   })
 }
+
+/** How long after launch the silent check waits, so the shell paints first. */
+const UPDATE_CHECK_DELAY_MS = 5000
 
 /** One instance's connection log, shaped for the log window. */
 function logSnapshot(manager: InstanceManager, id: string): ConnectionLogSnapshot {
@@ -330,6 +395,82 @@ function registerManagerIpc(
     if (event.sender.id !== appWindow.instancesId) return
     appWindow.closeInstanceManager()
   })
+}
+
+/**
+ * The chords the update window drives.
+ *
+ * Only that window may call them: its id is the check, so a shell page or the dsh
+ * content view cannot start a check, a download, or an install.
+ */
+function registerUpdateIpc(updater: AppUpdater, appWindow: AppWindow): void {
+  const fromUpdateWindow = (senderId: number): boolean => senderId === appWindow.updateId
+
+  ipcMain.handle(IPC.updateGet, (event): UpdateSnapshot | undefined => {
+    if (!fromUpdateWindow(event.sender.id)) return undefined
+    return updater.state()
+  })
+
+  ipcMain.handle(IPC.updateCheck, async (event): Promise<UpdateSnapshot | undefined> => {
+    if (!fromUpdateWindow(event.sender.id)) return undefined
+    return updater.check()
+  })
+
+  ipcMain.handle(IPC.updateDownload, async (event): Promise<UpdateSnapshot | undefined> => {
+    if (!fromUpdateWindow(event.sender.id)) return undefined
+    return updater.download()
+  })
+
+  ipcMain.handle(IPC.updateInstall, async (event): Promise<UpdateSnapshot | undefined> => {
+    if (!fromUpdateWindow(event.sender.id)) return undefined
+    return updater.installAndRelaunch()
+  })
+
+  ipcMain.handle(IPC.updateSkip, async (event): Promise<UpdateSnapshot | undefined> => {
+    if (!fromUpdateWindow(event.sender.id)) return undefined
+    return updater.skipVersion()
+  })
+
+  ipcMain.handle(IPC.updateLog, async (event): Promise<string | undefined> => {
+    if (!fromUpdateWindow(event.sender.id)) return undefined
+    return readLogTail(UPDATE_LOG_PATH)
+  })
+
+  ipcMain.on(IPC.updateOpenRelease, (event, url: string): void => {
+    if (!fromUpdateWindow(event.sender.id)) return
+    // The release URL comes from the feed, so it is validated as an https URL
+    // before it is handed to the browser: `shell.openExternal` runs whatever
+    // scheme it is given.
+    if (typeof url !== 'string' || !url.startsWith('https://')) return
+    void shell.openExternal(url).catch(() => undefined)
+  })
+
+  ipcMain.on(IPC.updateOpenWindow, (): void => {
+    appWindow.openUpdateWindow()
+  })
+}
+
+/**
+ * The tail of the installer's log, or a note when there is none yet.
+ *
+ * Read rather than streamed: an install ends in this process quitting, so the log
+ * is only ever read after the fact, in the run that came back.
+ */
+async function readLogTail(path: string): Promise<string | undefined> {
+  let handle
+  try {
+    handle = await open(path, 'r')
+    const { size } = await handle.stat()
+    const length = Math.min(size, UPDATE_LOG_TAIL_BYTES)
+    const buffer = Buffer.alloc(length)
+    await handle.read(buffer, 0, length, Math.max(0, size - length))
+    return buffer.toString('utf8')
+  } catch {
+    // No installer has run yet, which the window reports as an empty log.
+    return undefined
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
 }
 
 /** host.describe probe used for sidebar version display (same wire shape as the renderer bridge). */

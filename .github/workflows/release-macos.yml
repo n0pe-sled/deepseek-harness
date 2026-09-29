@@ -115,6 +115,10 @@ jobs:
         working-directory: apps/desktop
         env:
           DSH_SMOKE: '1'
+          # The smoke run boots the real app, and its launch update check would
+          # then reach GitHub from a runner that holds no token for this private
+          # repository. This gate is about the bundled closure booting.
+          DSH_UPDATE_AUTOSTART: '0'
           DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
           DSH_USER_DATA: ${{ runner.temp }}/dsh-smoke-userdata
         run: |

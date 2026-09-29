@@ -3,7 +3,7 @@
  * so the menu carries the things that bar cannot: the instance manager, the
  * per-kind add-instance entries, and the switch that hides the bar itself.
  */
-import { Menu, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, type MenuItemConstructorOptions } from 'electron'
 import type { AddKind } from '../shared/ipc.ts'
 
 export interface ShellMenuHandlers {
@@ -11,14 +11,41 @@ export interface ShellMenuHandlers {
   /** Open the instance manager: the one place an instance is launched from. */
   onLaunchInstance(): void
   onToggleTopbar(): void
+  /** Look for a newer release and show the result in the update window. */
+  onCheckForUpdates(): void
 }
 
 /** Stable id so the check state can be refreshed after a toggle. */
 const TOPBAR_ITEM = 'shell-topbar-toggle'
 
+/** Stable id so the update item can dim itself while a build cannot update. */
+const UPDATES_ITEM = 'shell-check-for-updates'
+
 export function buildShellMenu(handlers: ShellMenuHandlers): Menu {
   const template: MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    // macOS builds the App menu from `role: 'appMenu'`, which carries no place
+    // for an item of our own, so the submenu is spelled out here instead. The
+    // roles below it are what that role installs.
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        {
+          id: UPDATES_ITEM,
+          label: 'Check for Updates…',
+          accelerator: 'CmdOrCtrl+U',
+          click: () => handlers.onCheckForUpdates(),
+        },
+        { type: 'separator' },
+        { role: 'services', submenu: [] },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
     {
       label: 'File',
       submenu: [
@@ -82,4 +109,19 @@ export function buildShellMenu(handlers: ShellMenuHandlers): Menu {
 export function setTopbarChecked(menu: Menu, visible: boolean): void {
   const item = menu.getMenuItemById(TOPBAR_ITEM)
   if (item !== null) item.checked = visible
+}
+
+/**
+ * Enable or dim the update check.
+ *
+ * A build that did not come from a bundle has no bundle to replace, so the item
+ * stays visible but dim rather than disappearing, which would leave a user hunting
+ * for a menu item their build never had.
+ *
+ * @param menu - the shell menu.
+ * @param enabled - whether this build can check for an update.
+ */
+export function setUpdatesEnabled(menu: Menu, enabled: boolean): void {
+  const item = menu.getMenuItemById(UPDATES_ITEM)
+  if (item !== null) item.enabled = enabled
 }

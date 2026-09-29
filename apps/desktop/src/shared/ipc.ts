@@ -2,6 +2,7 @@
  * IPC channel names shared between main, preload, and renderer.
  * Channel names are the single source of truth; never hand-write literals elsewhere.
  */
+import type { UpdateSnapshot } from './update.ts'
 
 export const IPC = {
   // manager ⇄ main (invoke: renderer → main)
@@ -38,6 +39,26 @@ export const IPC = {
   connectionRetry: 'connection:retry',
   /** main → connection view: a fresh snapshot. */
   connectionUpdate: 'connection:update',
+
+  // update window (the app's own update check, download, and install)
+  /** update window → main: the current snapshot. */
+  updateGet: 'update:get',
+  /** update window → main: look for a newer release. */
+  updateCheck: 'update:check',
+  /** update window → main: download the image the check selected. */
+  updateDownload: 'update:download',
+  /** update window → main: install the downloaded image and relaunch. */
+  updateInstall: 'update:install',
+  /** update window → main: stop offering the version the check found. */
+  updateSkip: 'update:skip',
+  /** update window → main: the tail of the installer's log. */
+  updateLog: 'update:get-log',
+  /** update window → main: open the release page in the default browser. */
+  updateOpenRelease: 'update:open-release',
+  /** shell → main: open (or focus) the update window. */
+  updateOpenWindow: 'update:open-window',
+  /** main → update window: a fresh snapshot. */
+  updateState: 'update:state',
 
   // top bar (session tabs) chrome
   /** shell → main: apply a top-bar visibility preference (restored from storage). */
@@ -102,6 +123,39 @@ export interface DshConnectionApi {
   retry(instanceId?: string): Promise<void>
   /** Subscribe to snapshots pushed while this page is displayed. */
   onUpdate(cb: (snapshot: ConnectionLogSnapshot) => void): () => void
+}
+
+/**
+ * How much of the installer's log the update window reads. Enough to hold the
+ * failure that stopped an install, which is the whole reason to show it.
+ */
+export const UPDATE_LOG_TAIL_BYTES = 8 * 1024
+
+/** The API the update window gets from the shell preload. */
+export interface DshUpdateApi {
+  /** The current snapshot, for a window that loads after the last push. */
+  get(): Promise<UpdateSnapshot>
+  /** Look for a newer release; resolves when the check finishes. */
+  check(): Promise<UpdateSnapshot>
+  /** Download the image the check selected; resolves when it lands. */
+  download(): Promise<UpdateSnapshot>
+  /** Install the downloaded image and relaunch; the app quits on success. */
+  install(): Promise<UpdateSnapshot>
+  /** Stop offering the version the check found. */
+  skip(): Promise<UpdateSnapshot>
+  /** The tail of the installer's log, or a note when there is none yet. */
+  log(): Promise<string | undefined>
+  /** Open a release page in the default browser. Only https is accepted. */
+  openRelease(url: string): void
+  /** Ask main to open (or focus) the update window. */
+  openWindow(): void
+  /**
+   * Subscribe to snapshots pushed while this window is open.
+   *
+   * Named `onState` rather than `onUpdate`, which the manager API already uses
+   * for the instance list.
+   */
+  onState(cb: (snapshot: UpdateSnapshot) => void): () => void
 }
 
 export type StreamKind = 'mux' | 'host'

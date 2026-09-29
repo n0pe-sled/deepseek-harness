@@ -68,6 +68,13 @@ body {
   margin-left: auto;
 }
 
+/* The launch check's badge: only in the bar, and only while an update waits on
+   the user. The accent marks it as the one new thing in the chrome. */
+#btn-update {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+
 .tab {
   display: flex;
   align-items: center;
@@ -430,3 +437,115 @@ body.conn-window #app { display: none; }
   border-top: 1px solid var(--border);
 }
 .conn-foot .btn[disabled] { opacity: 0.55; cursor: default; }
+
+/* ---- Update window ----------------------------------------------------- */
+/* A fourth duty of index.html: shown when main loads this page with ?update=1.
+   The session bar markup stays in the DOM but hidden. */
+
+body.update-window { height: 100vh; overflow: hidden; }
+body.update-window #app { display: none; }
+
+.updateview {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.update-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.update-title h1 { margin: 0; font-size: 13px; font-weight: 600; }
+.update-version { margin: 2px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+
+.update-summary {
+  margin: 0;
+  padding: 12px 14px 0;
+}
+
+/* The reason a check or an install did not finish, kept at the top where it
+   cannot be scrolled away from. */
+.update-reason {
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+  border-radius: 4px;
+  color: var(--err);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.update-bar {
+  height: 4px;
+  margin: 12px 14px 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  overflow: hidden;
+}
+.update-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+/* Release notes: remote content, rendered as text in a monospace block. */
+.update-notes {
+  flex: 0 1 auto;
+  max-height: 30vh;
+  margin: 12px 14px 0;
+  padding: 10px 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.update-logwrap {
+  margin: 12px 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+}
+.update-logwrap summary {
+  padding: 6px 10px;
+  cursor: default;
+  font-size: 11px;
+}
+.update-log {
+  max-height: 24vh;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.update-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.update-foot .btn[disabled] { opacity: 0.55; cursor: default; }

@@ -13,6 +13,7 @@
         <p id="hint" class="hint">No instances yet. Use + Launch Instance to add a local dsh, an SSH remote, or a raw URL.</p>
 
         <div class="actions">
+          <button id="btn-update" class="btn" hidden></button>
           <button id="btn-launch" class="btn primary">+ Launch Instance</button>
         </div>
       </header>
@@ -68,6 +69,33 @@
           <span id="conn-copied" class="log-copied" hidden>Copied</span>
         </footer>
       </div>
+    </section>
+
+    <!-- Update window. A fourth duty of this page, loaded by main with
+         ?update=1. The session bar markup stays in the DOM but hidden. -->
+    <section id="updateview" class="updateview" hidden>
+      <header class="update-head">
+        <div class="update-title">
+          <h1>Software Update</h1>
+          <p id="u-version" class="update-version"></p>
+        </div>
+        <span id="u-phase" class="log-status"></span>
+      </header>
+      <p id="u-summary" class="update-summary">Checking for updates…</p>
+      <p id="u-reason" class="update-reason" hidden></p>
+      <div id="u-bar" class="update-bar" hidden><span id="u-bar-fill" class="update-bar-fill"></span></div>
+      <pre id="u-notes" class="update-notes" hidden></pre>
+      <details id="u-logwrap" class="update-logwrap" hidden>
+        <summary>Installer log</summary>
+        <pre id="u-log" class="update-log"></pre>
+      </details>
+      <footer class="update-foot">
+        <button id="u-check" class="btn">Check Again</button>
+        <button id="u-download" class="btn primary" hidden>Download</button>
+        <button id="u-install" class="btn primary" hidden>Install and Relaunch</button>
+        <button id="u-release" class="btn" hidden>Release Notes</button>
+        <button id="u-skip" class="btn" hidden>Skip This Version</button>
+      </footer>
     </section>
 
     <script type="module" src="./main.ts"></script>
