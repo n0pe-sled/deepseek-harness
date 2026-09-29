@@ -1,15 +1,18 @@
 # Local checkout setup
 
-This is a fork of DeepSeek Harness that carries the plugins and skills used on
-this machine, so one clone reproduces the working setup.
+This checkout is the whole project. It carries the harness, the fork plugins, the
+skills, the desktop app, and the container deployment, so one clone reproduces the
+working setup.
 
 ## What is in the checkout
 
 | Path | Contents |
 |---|---|
-| `packages/`, `apps/`, `vendor/` | the upstream harness, unchanged in layout |
+| `packages/`, `apps/`, `vendor/` | the harness, unchanged in layout |
+| `apps/desktop/` | the Electron desktop shell, folded in from the `DeepSeek-App` repository |
 | `plugins/<name>/` | one git submodule per plugin, each its own repository under [`n0pe-sled`](https://github.com/n0pe-sled?tab=repositories) |
-| `skills/` | a submodule of [`deepseek-harness-skills`](https://github.com/n0pe-sled/deepseek-harness-skills), whose own `generic-skills/`, `third-party-skills/`, and `security-review-skills/` directories hold plain skill files |
+| `skills/` | plain skill files folded in from the [`deepseek-harness-skills`](https://github.com/n0pe-sled/deepseek-harness-skills) repository, in `generic-skills/`, `third-party-skills/`, and `security-review-skills/` |
+| `skills/specterops-skills/` | a submodule pinned to [SpecterOps/skills](https://github.com/SpecterOps/skills) |
 | `dsh-manage.mjs` | discovers the plugins and skills below and syncs a profile with them |
 
 All plugin repositories are listed in `.gitmodules` at the root. They are
@@ -42,9 +45,10 @@ for dir in plugins/*/; do
 done
 ```
 
-Cloned without `--recurse-submodules`? `plugins/` and `skills/` arrive empty, so
-run `git submodule update --init --recursive` first. The recursive clone is a
-convenience rather than a requirement.
+Cloned without `--recurse-submodules`? `plugins/` arrives empty, so run
+`git submodule update --init --recursive` first. The recursive clone is a
+convenience rather than a requirement. `skills/` is plain files, so it arrives
+either way.
 
 Then pick what the profile runs:
 
