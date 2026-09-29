@@ -21,18 +21,27 @@
 
 import { execFileSync } from 'node:child_process'
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync,
+  symlinkSync, writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
+/**
+ * The checkout this script belongs to. `realpathSync` matters here: `--install`
+ * symlinks this file into `~/.local/bin/dsh-manage`, so `import.meta.url` on an
+ * installed copy resolves to the symlink and would derive the root from the link's
+ * directory instead of the checkout.
+ */
+const CHECKOUT = dirname(realpathSync(fileURLToPath(import.meta.url)))
+
 const DSH_HOME = resolve(process.env.DSH_HOME ?? '/opt/deepseek/deepseek-harness-data')
-const PLUGINS_REPO = resolve(process.env.DSH_PLUGINS_REPO ?? '/opt/deepseek/deepseek-harness-plugins')
-const SKILLS_REPO = resolve(process.env.DSH_SKILLS_REPO ?? '/opt/deepseek/deepseek-harness-skills')
+const PLUGINS_REPO = resolve(process.env.DSH_PLUGINS_REPO ?? join(CHECKOUT, 'plugins'))
+const SKILLS_REPO = resolve(process.env.DSH_SKILLS_REPO ?? join(CHECKOUT, 'skills'))
 /** The dsh installation anchor used to compute the dependency closure for out-of-tree plugins. */
-const INSTALL_ANCHOR = resolve(process.env.DSH_INSTALL_ANCHOR ?? '/opt/deepseek/deepseek-harness/apps/cli/package.json')
+const INSTALL_ANCHOR = resolve(process.env.DSH_INSTALL_ANCHOR ?? join(CHECKOUT, 'apps', 'cli', 'package.json'))
 const HARNESS_REPO = resolve(process.env.DSH_HARNESS_REPO ?? join(dirname(INSTALL_ANCHOR), '..', '..'))
 const USER_BIN = resolve(process.env.DSH_BIN_DIR ?? join(process.env.HOME ?? '', '.local', 'bin'))
 
@@ -76,11 +85,13 @@ Options:
 
 Environment:
   DSH_HOME            Harness home (default /opt/deepseek/deepseek-harness-data)
-  DSH_PLUGINS_REPO    plugins repo (default /opt/deepseek/deepseek-harness-plugins)
-  DSH_SKILLS_REPO     skills repo (default /opt/deepseek/deepseek-harness-skills)
-  DSH_INSTALL_ANCHOR  dsh app package.json (default …/deepseek-harness/apps/cli/package.json)
-  DSH_HARNESS_REPO    checked-out harness root inferred from DSH_INSTALL_ANCHOR
+  DSH_PLUGINS_REPO    plugins repo (default <checkout>/plugins)
+  DSH_SKILLS_REPO     skills repo (default <checkout>/skills)
+  DSH_INSTALL_ANCHOR  dsh app package.json (default <checkout>/apps/cli/package.json)
+  DSH_HARNESS_REPO    harness root (default <checkout>; inferred from DSH_INSTALL_ANCHOR when set)
   DSH_BIN_DIR         command install directory (default ~/.local/bin)
+
+  <checkout> is the directory holding this script, resolved through symlinks.
 `)
   process.exit(0)
 }
