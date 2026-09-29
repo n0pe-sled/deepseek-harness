@@ -40,3 +40,6 @@
 [submodule "skills"]
 	path = skills
 	url = https://github.com/n0pe-sled/deepseek-harness-skills.git
+[submodule "specterops-skills"]
+	path = skills/specterops-skills
+	url = https://github.com/SpecterOps/skills.git
