@@ -5,18 +5,25 @@
  *
  * DSH_SMOKE_DSH selects the dsh executable; unset means the bundled harness,
  * which is the packaged default and therefore the thing CI must prove.
+ *
+ * The smoke instance runs unsandboxed. The gate is about the bundled closure
+ * booting, and a CI runner has no container runtime to sandbox in, so the default
+ * sandbox would fail this step for a reason that has nothing to do with the
+ * closure. The container path has its own gated live test:
+ * tests/unit/sandbox-launch.integration.test.ts (DSH_SANDBOX_PROBE=1).
  */
 import type { InstanceManager } from './instances/manager.ts'
 import type { AppWindow } from './window.ts'
 
 const LOAD_TIMEOUT_MS = 120_000
 /**
- * Accepted document titles. A published harness build and a local from-source
- * build set different titles ("DeepSeek Harness" vs "DSH Local Build"), and the
- * bundled closure may be either, so the boot assertion must not be pinned to
- * one of them. DSH_SMOKE_TITLE overrides both.
+ * Accepted document titles. The harness sets its own title and has renamed it
+ * across revisions: the pinned ref this app stages serves "DSH Local Build", and
+ * the fork's newer revisions serve "n0pe-sled AI". A rebrand must not fail this
+ * gate, so every title a staged closure can serve is accepted, and a title this
+ * app does not know fails loudly. DSH_SMOKE_TITLE overrides the list.
  */
-const DEFAULT_TITLES = ['DeepSeek Harness', 'DSH Local Build']
+const DEFAULT_TITLES = ['DeepSeek Harness', 'DSH Local Build', 'n0pe-sled AI']
 
 export async function runSmoke(manager: InstanceManager, appWindow: AppWindow, applyActive: () => void): Promise<number> {
   const dshPath = process.env.DSH_SMOKE_DSH ?? undefined
@@ -25,7 +32,7 @@ export async function runSmoke(manager: InstanceManager, appWindow: AppWindow, a
     : [process.env.DSH_SMOKE_TITLE]
   const harnessLabel = dshPath === undefined ? 'bundled' : `path:${dshPath}`
   try {
-    const view = manager.addLocal({ name: 'smoke', dshPath })
+    const view = manager.addLocal({ name: 'smoke', dshPath, sandbox: { enabled: false } })
     const id = view.config.id
     const connected = await manager.connect(id)
     if (connected.runtime.status !== 'running') {
