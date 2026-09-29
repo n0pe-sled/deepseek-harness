@@ -3,6 +3,9 @@
 Prebuilt container image hosting the DeepSeek Harness (dsh) and every fork
 plugin, published as `ghcr.io/n0pe-sled/dsh-sandbox`.
 
+This directory is `deploy/sandbox-image` in the `deepseek-harness` repository, so
+the harness closure and the plugins it bakes come from that checkout.
+
 The image exists so neither the desktop app nor a remote host needs a Node
 install, a staged closure, or any build tooling: the runtime is pulled and run.
 Containerized execution is the default for DSH Desktop instances, with a
@@ -11,7 +14,7 @@ per-instance opt-out that restores the direct host-process behavior.
 ## What is inside
 
 - `node:22-bookworm-slim` (glibc; satisfies the harness engine range `^22.19.0 || >=24.0.0`)
-- `/opt/harness` — the fork's harness closure, staged from a pinned harness ref
+- `/opt/harness` — the harness closure, staged from the workspace in this checkout
 - `/opt/harness/plugins-src` — every fork plugin, built from source, plus their
   third-party runtime deps. They live *inside* the harness tree on purpose:
   their `@deepseek-ai/*` peers are provided by the closure, and Node only finds
@@ -52,21 +55,27 @@ under `/data/instances/<name>`.
 
 ## Build it locally
 
+Run these from this directory, so both defaults resolve by walking up out of it:
+
 ```sh
 node scripts/prepare-context.mjs                       # stages closures, builds plugins, seeds the profile
 docker buildx build -f Containerfile --platform linux/amd64 .   # arm64 on Apple Silicon
 ```
 
-Defaults expect sibling checkouts (`../deepseek-harness`, `../DeepSeek-App`);
-override with `--harness` / `--app`. The harness tree is only read.
+The defaults are the harness root two levels up and the app at `apps/desktop`
+inside it. Override with `--harness` / `--app` to build from separate checkouts.
+The harness tree is only read.
 
 ## CI
 
-`.github/workflows/release.yml` pins both source repos (`HARNESS_REF`,
-`APP_REF` at the top of the file), builds the context, and pushes
-multi-arch images tagged `latest`, `v<version>`, `<version>-<revision>`, and
-`sha-<short>`. Bump the pins to ship a new harness or plugin set; the two
-plugins currently in flight are built from the pinned ref, never a dirty tree.
+`.github/workflows/sandbox-release.yml` at the repository root checks out the
+repository once, builds the context from that revision, and pushes multi-arch images
+tagged `latest`, `v<version>`, `<version>-<revision>`, and `sha-<short>`. The
+workflow sits at the root because the root is the only `.github/workflows/`
+directory GitHub reads, and the copy this directory used to carry sat at a path that
+never ran. A run builds the revision it checked out, so a dirty working tree never
+reaches an image. Rebuild a past revision with a `workflow_dispatch` and `ref` set
+to its full commit SHA.
 
 ## Isolation notes
 

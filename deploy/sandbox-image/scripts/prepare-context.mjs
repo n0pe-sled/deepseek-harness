@@ -13,7 +13,7 @@
  *                     installed; the image copies this to /data on first boot
  *   meta.json         { version, revision } of the staged closure, for tags
  *
- * Closure staging is delegated to the app repo's scripts/stage-harness.mjs,
+ * Closure staging is delegated to the desktop app's scripts/stage-harness.mjs,
  * which already knows how to produce a target-clean Linux closure (its
  * foreign-target path stages from a scratch git worktree, so the harness
  * checkout itself is only read).
@@ -21,7 +21,10 @@
  * Usage:
  *   node scripts/prepare-context.mjs [--harness <dir>] [--app <dir>] [--out <dir>]
  *
- * Default locations are siblings: ../deepseek-harness and ../DeepSeek-App.
+ * This directory is deploy/sandbox-image inside the harness repository, so both
+ * defaults are reached by walking out of it: the harness root two levels up, and
+ * the app two levels up and back down into apps/desktop. Pass --harness and
+ * --app to build from separate checkouts instead.
  */
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -47,7 +50,7 @@ function run(cmd, args, opts = {}) {
   execFileSync(cmd, args, { stdio: 'inherit', env: process.env, ...opts })
 }
 
-/** Sibling defaults, mirroring how stage-harness.mjs locates the harness. */
+/** A default that counts only when the directory holds the probe file. */
 function resolveDefault(candidate, probe) {
   const dir = resolve(candidate)
   return existsSync(join(dir, ...probe)) ? dir : undefined
@@ -56,16 +59,19 @@ function resolveDefault(candidate, probe) {
 const opts = parseArgs(process.argv.slice(2))
 
 const harness = resolve(
-  opts.harness ?? resolveDefault(join(repoRoot, '..', 'deepseek-harness'), ['apps', 'cli', 'package.json']) ?? '',
+  opts.harness ?? resolveDefault(join(repoRoot, '..', '..'), ['apps', 'cli', 'package.json']) ?? '',
 )
+// The app repository moved into the harness repository, so the default app is
+// nested inside whichever harness root was resolved above rather than beside this
+// directory. --app still overrides it for a standalone app checkout.
 const app = resolve(
-  opts.app ?? resolveDefault(join(repoRoot, '..', 'DeepSeek-App'), ['scripts', 'stage-harness.mjs']) ?? '',
+  opts.app ?? resolveDefault(join(harness, 'apps', 'desktop'), ['scripts', 'stage-harness.mjs']) ?? '',
 )
 if (!existsSync(join(harness, 'pnpm-workspace.yaml'))) {
   throw new Error(`no harness workspace at ${harness}; pass --harness /path/to/deepseek-harness`)
 }
 if (!existsSync(join(app, 'scripts', 'stage-harness.mjs'))) {
-  throw new Error(`no DeepSeek-App checkout at ${app}; pass --app /path/to/DeepSeek-App`)
+  throw new Error(`no desktop app checkout at ${app}; pass --app /path/to/deepseek-harness/apps/desktop`)
 }
 
 const out = resolve(opts.out)
@@ -112,9 +118,11 @@ for (const [index, { arch, triple }] of TARGETS.entries()) {
 }
 
 // --- 2. Copy plugin sources out and build them -------------------------------
-// Two plugin sources are merged: the harness fork's plugins/ tree (read-only
-// — sources are copied out and built here, never built in place) and this
-// repo's own plugins/ (the sandbox-specific ones).
+// Two plugin sources are merged: the harness repository's plugins/ tree, whose
+// sources are copied out and built here rather than built in place, and the
+// plugins/ beside this script, which hold the plugins only the image needs.
+// Both trees survive the move into the harness repository: the fork's plugins stay
+// at <harness>/plugins, and this directory sits below them.
 const pluginsDir = join(harness, 'plugins')
 const sources = [
   ...readdirSync(pluginsDir, { withFileTypes: true })

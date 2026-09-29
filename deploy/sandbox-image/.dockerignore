@@ -1,4 +1,9 @@
-# The build context IS `build/` (prepared by scripts/prepare-context.mjs), so
-# nothing generated may be ignored here — only source-control noise is.
+# The build context is this directory (build/ below it is prepared by
+# scripts/prepare-context.mjs), so nothing the Containerfile copies may be
+# ignored here. Only source-control noise is.
+#
+# Each plugin copied under build/plugins-src/ carries the `.git` file of the
+# submodule it was read out of. build/meta.json holds the image tags, which CI
+# reads from the working tree rather than from the context.
 .git
 build/meta.json
