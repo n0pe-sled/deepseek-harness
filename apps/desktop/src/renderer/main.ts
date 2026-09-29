@@ -1,0 +1,382 @@
+import type { InstanceView } from '../shared/instance.ts'
+import { isLogRetarget } from '../shared/ipc.ts'
+import type { ConnectionLogMessage, ConnectionLogSnapshot, DshConnectionApi } from '../shared/ipc.ts'
+import type { DshManagerApi } from '../shared/manager.ts'
+import { ADD_KINDS, MODES, collectValues, renderFields } from './add-modes.ts'
+import type { AddMode } from './add-modes.ts'
+import { applyTheme } from './theme.ts'
+
+declare global {
+  interface Window {
+    dshManager: DshManagerApi
+    /** The content view's API for the in-tab connection page; absent in the shell. */
+    dshConnection: DshConnectionApi
+  }
+}
+
+const tabsEl = document.getElementById('tabs') as HTMLElement
+const hintEl = document.getElementById('hint') as HTMLElement
+const modal = document.getElementById('modal') as HTMLDialogElement
+const modalTitle = document.getElementById('modal-title') as HTMLElement
+const modalFields = document.getElementById('modal-fields') as HTMLElement
+const modalForm = document.getElementById('modal-form') as HTMLFormElement
+const modalOk = document.getElementById('modal-ok') as HTMLButtonElement
+
+let views: InstanceView[] = []
+let activeId: string | undefined
+let mode: AddMode | undefined
+
+// One page serves three duties, chosen by query parameter: the shell top bar
+// (no parameter), the add-instance modal (`?add=<kind>`), the log window
+// (`?log=<id>`), and the in-tab connection view (`?connection=<id>`). The last
+// one runs in the CONTENT view, which carries the dsh preload rather than the
+// manager preload, so `window.dshManager` is absent there. Everything below the
+// connection branch must therefore tolerate that: an unguarded call at module
+// scope throws before the connection branch runs, and the page renders as the
+// empty shell — a blank tab with no explanation.
+const connectionIdForBoot = new URLSearchParams(window.location.search).get('connection')
+const isConnectionView = connectionIdForBoot !== null
+
+// One page serves two windows: the 40px-tall top bar, and the add-instance
+// modal window (main loads this file with `?add=<kind>` for the modal). In
+// modal duty the bar chrome hides and the form owns the window.
+const addKind = new URLSearchParams(window.location.search).get('add')
+const isAddWindow = addKind !== null
+if (isAddWindow) document.body.classList.add('add-window')
+
+const shellManager: DshManagerApi | undefined = window.dshManager
+
+// The shell, add-modal and log windows all carry the manager preload, so from
+// the connection branch onward `shellManager` is always defined; the call sites
+// past it assert that with `!`. Only the connection view lacks it, and it returns
+// above this point.
+
+if (shellManager !== undefined) {
+  // ---- Theme: paint the shell to match the active dsh theme (sent by main) ----
+  shellManager.onTheme(applyTheme)
+  // Pull the current theme on boot: if the content page reported one before this
+  // sidebar finished subscribing, the pull recovers it.
+  void shellManager.getTheme().then((theme) => { if (theme !== undefined) applyTheme(theme) }).catch(() => undefined)
+}
+
+// ---- Top bar chrome: main owns the layout, we own the stored choice ----
+const TOPBAR_KEY = 'dsh:topbar-hidden'
+
+if (!isConnectionView) {
+  shellManager!.onTopbarChanged((visible: boolean) => {
+    localStorage.setItem(TOPBAR_KEY, visible ? '0' : '1')
+    // Main keeps the bar strip over the content pane while the bar is hidden,
+    // as the window's drag handle. Nothing may be painted inside it, or the strip
+    // covers the harness's own header.
+    document.body.classList.toggle('bar-hidden', !visible)
+  })
+}
+
+// Restore the last choice before the first paint, otherwise the bar shows and
+// then snaps away a frame later.
+if (!isConnectionView && localStorage.getItem(TOPBAR_KEY) === '1') {
+  document.body.classList.add('bar-hidden')
+  shellManager!.setTopbarVisible(false)
+}
+
+function render(): void {
+  tabsEl.textContent = ''
+  for (const view of views) tabsEl.appendChild(renderTab(view, views.length === 1))
+  // One session is not a tab strip. Show it as a plain status chip instead.
+  tabsEl.style.display = views.length === 0 ? 'none' : ''
+  hintEl.style.display = views.length === 0 ? '' : 'none'
+}
+
+function renderTab(view: InstanceView, bare: boolean): HTMLElement {
+  const isActive = view.config.id === activeId
+
+  const tab = document.createElement('button')
+  tab.type = 'button'
+  tab.className = 'tab' + (isActive ? ' active' : '') + (bare ? ' bare' : '')
+  tab.setAttribute('role', 'tab')
+  tab.setAttribute('aria-selected', String(isActive))
+  tab.title = [
+    view.config.name,
+    view.config.kind,
+    view.runtime.detail ?? view.runtime.status,
+    // The revision is what tells the fork apart from upstream: both publish
+    // under the same version string, so a version alone cannot answer
+    // "am I running our code".
+    ...(view.runtime.revision === undefined ? [] : [`revision ${view.runtime.revision}`]),
+    ...(view.runtime.origin?.target === undefined ? [] : [view.runtime.origin.target]),
+    ...(view.runtime.origin?.provisioned === true ? ['shipped by this app'] : []),
+    view.runtime.error ?? '',
+  ].filter(Boolean).join(' · ')
+
+  const dot = document.createElement('span')
+  dot.className = `dot ${view.runtime.status}`
+  // The status alone ("error") says nothing; the reason is what the user needs,
+  // and the dot is the thing they are already looking at.
+  dot.title = view.runtime.error ?? view.runtime.status
+
+  const name = document.createElement('span')
+  name.className = 'tab-name'
+  name.textContent = view.config.name
+
+  // Which fork revision is running, next to the name rather than only in the
+  // tooltip: "am I on our code" has to be answerable at a glance, because the
+  // fork and upstream publish under the same version string.
+  const revision = view.runtime.revision
+  if (revision !== undefined && revision !== '') {
+    const badge = document.createElement('span')
+    badge.className = 'tab-rev'
+    badge.textContent = revision.slice(0, 10)
+    badge.title = `harness revision ${revision}`
+    name.append(' ', badge)
+  }
+
+  const close = document.createElement('span')
+  close.className = 'tab-close'
+  close.textContent = '✕'
+  close.title = 'Remove instance'
+  close.addEventListener('click', (event) => {
+    event.stopPropagation()
+    void shellManager!.remove(view.config.id).catch((error: unknown) => showError(error))
+  })
+
+  // Reopen the connection log. Always present, not only on failure: watching a
+  // slow connect is the other reason the window exists, and a control that
+  // appears only after something breaks is one nobody finds in time.
+  const logs = document.createElement('span')
+  logs.className = 'tab-logs'
+  logs.textContent = '≡'
+  logs.title = 'Connection log'
+  logs.addEventListener('click', (event) => {
+    event.stopPropagation()
+    shellManager!.openLog(view.config.id)
+  })
+
+  tab.append(dot, name, logs, close)
+  tab.addEventListener('click', () => {
+    // connect() starts a stopped instance and makes it the active one.
+    if (isActive) return
+    void shellManager!.connect(view.config.id).catch((error: unknown) => showError(error))
+  })
+  return tab
+}
+
+function openModal(nextMode: AddMode): void {
+  mode = nextMode
+  modalTitle.textContent = nextMode.title
+  if (isAddWindow) document.title = nextMode.title
+  // renderFields clears the container itself, so there is nothing to empty here.
+  renderFields(modalFields, nextMode.fields)
+  modal.showModal()
+  modalFields.querySelector<HTMLInputElement>('input')?.focus()
+}
+
+// Any close path — Cancel, Escape, or the overlay click-through — collapses the
+// mode; the modal window also closes itself because the form is all it hosts.
+modal.addEventListener('close', () => {
+  mode = undefined
+  if (isAddWindow) window.close()
+})
+
+function closeModal(): void {
+  modal.close()
+}
+
+function doSubmit(): void {
+  const current = mode
+  if (current === undefined) return
+  // collectValues drops a switch that is off, so the submit path in add-modes.ts
+  // reads a missing key as off rather than 'false'.
+  const values = collectValues(modalFields)
+  void current.submit(shellManager!, values)
+    .then(() => closeModal())
+    .catch((error: unknown) => showError(error))
+}
+
+modalOk.addEventListener('click', doSubmit)
+
+modalForm.addEventListener('submit', (event) => {
+  event.preventDefault()
+  doSubmit()
+})
+
+document.getElementById('modal-cancel')?.addEventListener('click', closeModal)
+// The bar never hosts the form itself: creating and launching instances belongs to
+// the instance manager window, so the bar keeps one way in rather than one button
+// per kind.
+if (!isConnectionView) {
+  document.getElementById('btn-launch')?.addEventListener('click', () => shellManager!.openInstances())
+}
+
+if (isAddWindow && addKind !== null) {
+  const startKind = ADD_KINDS.find((kind) => kind === addKind)
+  if (startKind === undefined) {
+    // A hand-written query is the only way to reach an unknown kind.
+    window.close()
+  } else {
+    openModal(MODES[startKind])
+  }
+}
+
+// ---- Connection log window -------------------------------------------------
+// A third duty of this page. Main loads it with `?log=<instanceId>`; the window
+// renders the live log for that instance, so connecting is something you watch
+// rather than a dot that turns red with no explanation.
+
+const logView = document.getElementById('logview') as HTMLElement
+const logName = document.getElementById('log-name') as HTMLElement
+const logTargetLine = document.getElementById('log-target') as HTMLElement
+const logStatus = document.getElementById('log-status') as HTMLElement
+const logError = document.getElementById('log-error') as HTMLElement
+const logLines = document.getElementById('log-lines') as HTMLElement
+const logCopy = document.getElementById('log-copy') as HTMLButtonElement
+const logCopied = document.getElementById('log-copied') as HTMLElement
+
+/** Which instance this window shows; main can re-target an already-open window. */
+let logInstance = new URLSearchParams(window.location.search).get('log') ?? undefined
+let lastLines: string[] = []
+
+if (logInstance !== undefined) {
+  document.body.classList.add('log-window')
+  logView.hidden = false
+
+  const paint = (snapshot: ConnectionLogSnapshot): void => {
+    logName.textContent = snapshot.name
+    logTargetLine.textContent = snapshot.target
+    logStatus.textContent = snapshot.status
+    logStatus.className = `log-status ${snapshot.status}`
+    if (snapshot.error === undefined) {
+      logError.hidden = true
+      logError.textContent = ''
+    } else {
+      logError.hidden = false
+      logError.textContent = snapshot.error
+    }
+    lastLines = snapshot.lines
+    // An empty box reads as a bug, so say what is happening instead.
+    logLines.textContent = snapshot.lines.length === 0
+      ? (snapshot.status === 'starting' ? 'Connecting…' : 'No log output yet.')
+      : snapshot.lines.join('\n')
+    logLines.scrollTop = logLines.scrollHeight
+  }
+
+  const refresh = async (): Promise<void> => {
+    if (logInstance === undefined) return
+    const snapshot = await shellManager!.getLog(logInstance)
+    if (snapshot !== undefined) paint(snapshot)
+  }
+
+  shellManager!.onLogUpdate((message: ConnectionLogMessage) => {
+    // Main reuses one window across connects, so it can re-target the open one.
+    if (isLogRetarget(message)) {
+      logInstance = message.retarget
+      void refresh()
+      return
+    }
+    // One log at a time: ignore snapshots for any other instance.
+    if (message.instanceId !== logInstance) return
+    paint(message)
+  })
+
+  logCopy.addEventListener('click', () => {
+    const text = lastLines.length === 0 ? (logLines.textContent ?? '') : lastLines.join('\n')
+    void navigator.clipboard.writeText(text).then(() => {
+      logCopied.hidden = false
+      setTimeout(() => { logCopied.hidden = true }, 1500)
+    }).catch(() => undefined)
+  })
+
+  void refresh()
+}
+
+// ---- In-tab connection view ------------------------------------------------
+// Loaded into the content view with ?connection=<id> while an instance starts
+// and after it fails. It uses window.dshConnection (the content view's preload),
+// not window.dshManager, because this page is not the shell.
+
+const connectionId = new URLSearchParams(window.location.search).get('connection')
+
+if (connectionId !== null) {
+  document.body.classList.add('conn-window')
+  const view = document.getElementById('connview') as HTMLElement
+  view.hidden = false
+
+  const connName = document.getElementById('conn-name') as HTMLElement
+  const connTarget = document.getElementById('conn-target') as HTMLElement
+  const connStatus = document.getElementById('conn-status') as HTMLElement
+  const connError = document.getElementById('conn-error') as HTMLElement
+  const connLines = document.getElementById('conn-lines') as HTMLElement
+  const connRetry = document.getElementById('conn-retry') as HTMLButtonElement
+  const connLogWin = document.getElementById('conn-logwin') as HTMLButtonElement
+  const connCopy = document.getElementById('conn-copy') as HTMLButtonElement
+  const connCopied = document.getElementById('conn-copied') as HTMLElement
+
+  let connLastLines: string[] = []
+
+  const paintConnection = (snapshot: ConnectionLogSnapshot): void => {
+    connName.textContent = snapshot.status === 'error'
+      ? `${snapshot.name} could not connect`
+      : `Connecting to ${snapshot.name}`
+    connTarget.textContent = snapshot.target
+    connStatus.textContent = snapshot.status
+    connStatus.className = `log-status ${snapshot.status}`
+    connError.hidden = snapshot.error === undefined
+    connError.textContent = snapshot.error ?? ''
+    connLastLines = snapshot.lines
+    connLines.textContent = snapshot.lines.length === 0
+      ? 'Starting…'
+      : snapshot.lines.join('\n')
+    connLines.scrollTop = connLines.scrollHeight
+    // Retrying is only sensible once the attempt is over.
+    connRetry.disabled = snapshot.status === 'starting'
+    connRetry.textContent = snapshot.status === 'starting' ? 'Connecting…' : 'Try again'
+  }
+
+  const refreshConnection = async (): Promise<void> => {
+    const snapshot = await window.dshConnection.get(connectionId)
+    if (snapshot !== undefined) paintConnection(snapshot)
+  }
+
+  window.dshConnection.onUpdate(paintConnection)
+  connRetry.addEventListener('click', () => { void window.dshConnection.retry(connectionId).then(refreshConnection) })
+  connLogWin.addEventListener('click', () => { window.dshManager?.openLog(connectionId) })
+  connCopy.addEventListener('click', () => {
+    void navigator.clipboard.writeText(connLastLines.join('\n')).then(() => {
+      connCopied.hidden = false
+      setTimeout(() => { connCopied.hidden = true }, 1500)
+    }).catch(() => undefined)
+  })
+
+  void refreshConnection()
+}
+
+function showError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(message)
+  const banner = document.createElement('div')
+  banner.className = 'error-banner'
+  banner.textContent = message
+  banner.style.display = 'block'
+  const container = modal.open ? modalFields : document.body
+  container.prepend(banner)
+  setTimeout(() => banner.remove(), 6000)
+}
+
+if (!isConnectionView) {
+void shellManager!.list().then((listed: InstanceView[]) => {
+  views = listed
+  render()
+}).catch((error: unknown) => showError(error))
+void shellManager!.active().then((id: string | undefined) => {
+  activeId = id
+  render()
+}).catch(() => undefined)
+
+shellManager!.onUpdate((next: InstanceView[]) => {
+  views = next
+  render()
+})
+shellManager!.onActiveChanged((id: string | undefined) => {
+  activeId = id
+  render()
+})
+}

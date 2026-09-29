@@ -1,0 +1,26 @@
+# A bare `node_modules/` pattern (with a trailing slash) matches at ANY depth,
+# so it also matched the staged harness closure under resources/harness. Worse,
+# electron-builder honours this file, which produced a packaged app whose
+# harness had no dependencies and could not boot. Keep these root-anchored.
+/node_modules
+/out/
+/dist/
+/release/
+*.log
+.DS_Store
+
+# Staged harness closure (output of scripts/stage-harness.mjs): hundreds of
+# megabytes of installed dependencies, materialized in CI and at packaging
+# time, never committed. Its own node_modules is covered by this entry.
+/resources/harness/
+/resources/.harness-stage/
+# Closures staged for remote targets (`--target`), which sit beside the host
+# closure as resources/harness-<platform>-<arch>, plus the scratch checkout and
+# deploy directory a cross-staging run uses. Same size and provenance.
+/resources/harness-*/
+/resources/.harness-stage-target/
+/resources/.harness-worktree/
+
+# Local TruffleHog path excludes (see the trufflehog-pre-push skill). The file
+# is environment-specific, so it stays out of the repo.
+/.trufflehog-exclude

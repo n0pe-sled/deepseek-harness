@@ -1,0 +1,432 @@
+:root {
+  color-scheme: dark;
+  --bg: #1a1d23;
+  --panel: #22262e;
+  --border: #2f3440;
+  --text: #e6e9ef;
+  --muted: #8b93a3;
+  --accent: #4f8cff;
+  --ok: #3fb96f;
+  --err: #e5534b;
+  --warn: #d9a23f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+}
+
+/* The bar is one drag handle; every control opts back out of it. */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  /* Left padding clears the macOS traffic lights under hiddenInset, plus a
+   * buffer so the first tab does not sit on top of them. */
+  padding: 0 10px 0 96px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 auto;
+  max-width: 220px;
+  height: 27px;
+  padding: 0 7px 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.tab:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+.tab.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--text);
+}
+/* A lone session reads as a status label, not a tab. */
+.tab.bare { background: transparent; border-color: transparent; }
+.tab.bare:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+.tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Harness revision, so the fork is identifiable without hovering. */
+.tab-rev {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.field-hint { color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+.tab-close {
+  flex: none;
+  padding: 0 3px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close { opacity: 0.65; }
+.tab-close:hover { color: var(--err); opacity: 1; background: color-mix(in srgb, var(--err) 15%, transparent); }
+
+/* Log button: dimmer than close and never red, so a mis-click cannot delete. */
+.tab-logs {
+  flex: none;
+  padding: 0 3px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+  opacity: 0;
+  cursor: pointer;
+}
+.tab:hover .tab-logs,
+.tab.active .tab-logs { opacity: 0.7; }
+.tab-logs:hover { color: var(--text); opacity: 1; background: color-mix(in srgb, var(--text) 12%, transparent); }
+
+/* A failed instance keeps its log button visible: that is when it is wanted. */
+.tab:has(.dot.error) .tab-logs { opacity: 1; }
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.dot.running { background: var(--ok); }
+.dot.starting { background: var(--warn); }
+.dot.error { background: var(--err); }
+.dot.reconnecting { background: var(--warn); }
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.btn.primary:hover { background: #3f7bf0; }
+.btn.tiny { padding: 2px 7px; font-size: 11px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.btn.danger { color: var(--err); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+#modal {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  width: min(360px, 92vw);
+}
+#modal::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+/* Add window: this same page in modal duty, bar chrome hidden so the form
+ * owns the window. */
+body.add-window #topbar { display: none; }
+
+/* Session bar hidden: main keeps this page's strip above the content pane as the
+ * window's drag handle, so the strip stays a handle and paints nothing. Painting
+ * the bar there would cover the harness's own header, and dropping the strip
+ * entirely would hand the traffic lights the harness's logo. */
+body.bar-hidden #topbar { background: var(--bg); border-bottom: none; }
+body.bar-hidden #topbar > * { display: none; }
+
+.field { display: block; margin-bottom: 10px; }
+.field span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+.field input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+/* Switch field: a row of the track, then the label and its hint stacked. The
+ * checkbox stays in the DOM and keeps its focus, and the track is what stands in
+ * for it on screen. These rules follow .field above, which would otherwise give
+ * the hidden input a full width. */
+.field-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+}
+.field-toggle > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+.field-toggle .toggle-track {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  /* Nudged down onto the first line of the label, not the top of the row. */
+  margin: 2px 0 0;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 120ms ease;
+}
+.field-toggle .toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 120ms ease;
+}
+.field-toggle > input:checked + .toggle-track { background: var(--accent); }
+.field-toggle > input:checked + .toggle-track::after { transform: translateX(14px); }
+.field-toggle > input:focus-visible + .toggle-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.field-toggle .toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.field-toggle .toggle-label {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+.error-banner {
+  background: rgba(229, 83, 75, 0.15);
+  border: 1px solid var(--err);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* ---- Connection log window -------------------------------------------- */
+/* A third duty of index.html: shown when main loads this page with ?log=<id>.
+   The session bar markup stays in the DOM but hidden. */
+
+body.log-window { height: 100vh; overflow: hidden; }
+body.log-window #app { display: none; }
+
+.logview {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+.log-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.log-title h1 { margin: 0; font-size: 13px; font-weight: 600; }
+.log-target { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+
+.log-status {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--muted) 20%, transparent);
+  color: var(--muted);
+}
+.log-status.running { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+.log-status.starting,
+.log-status.reconnecting { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.log-status.error { background: color-mix(in srgb, var(--err) 22%, transparent); color: var(--err); }
+
+/* The failure reason, kept at the top where it cannot be scrolled away from. */
+.log-error {
+  margin: 0;
+  padding: 10px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border-bottom: 1px solid var(--border);
+  color: var(--err);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.log-lines {
+  flex: 1;
+  margin: 0;
+  padding: 10px 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.log-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+.log-copied { color: var(--ok); font-size: 11px; }
+
+/* ---- In-tab connection view ------------------------------------------- */
+/* Loaded into the content view (not the shell) with ?connection=<id>. It fills
+   the pane the harness normally occupies, so a slow or failed connect is
+   something you watch in place rather than a popup or a blank area. */
+
+body.conn-window { height: 100vh; overflow: hidden; }
+body.conn-window #app { display: none; }
+
+.connview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100vh;
+  padding: 28px 24px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.conn-inner {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 760px;
+  max-height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.conn-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.conn-title h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.conn-target { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+
+.conn-error {
+  margin: 0;
+  padding: 12px 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border-bottom: 1px solid var(--border);
+  color: var(--err);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.conn-lines {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.conn-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.conn-foot .btn[disabled] { opacity: 0.55; cursor: default; }

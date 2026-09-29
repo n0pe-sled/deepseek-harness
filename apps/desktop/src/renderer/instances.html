@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Instances</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./instances.css" />
+  </head>
+  <body>
+    <div id="manager" class="manager">
+      <aside class="rail">
+        <header class="rail-head">
+          <h1>Instances</h1>
+          <button id="new" class="btn rail-new" type="button" aria-pressed="false">+ New</button>
+        </header>
+        <p id="rail-note" class="rail-note">Loading instances…</p>
+        <div id="list" class="list" role="listbox" aria-label="Saved instances"></div>
+      </aside>
+
+      <main class="pane">
+        <p id="loading" class="pane-note">Loading instances…</p>
+
+        <section id="detail" class="detail" hidden>
+          <header class="pane-head">
+            <div class="pane-title">
+              <h2 id="d-name"></h2>
+              <p id="d-kind" class="pane-kind"></p>
+            </div>
+            <span id="d-status" class="pane-status"></span>
+          </header>
+          <div class="pane-body">
+            <p id="d-target" class="pane-target"></p>
+            <pre id="d-error" class="error-banner" hidden></pre>
+            <pre id="d-failed" class="error-banner" hidden></pre>
+            <p id="d-meta" class="pane-meta" hidden></p>
+            <p id="d-progress" class="pane-progress" hidden></p>
+          </div>
+          <footer class="pane-foot">
+            <button id="d-launch" class="btn primary" type="button">Launch</button>
+            <button id="d-log" class="btn" type="button">Log</button>
+            <span class="pane-spacer"></span>
+            <button id="d-remove" class="btn danger" type="button">Remove</button>
+          </footer>
+        </section>
+
+        <section id="create" class="create" hidden>
+          <header class="pane-head">
+            <div class="pane-title">
+              <h2>New instance</h2>
+              <p id="c-mode" class="pane-kind"></p>
+            </div>
+          </header>
+          <div class="pane-body">
+            <div id="c-tabs" class="kind-tabs" role="tablist" aria-label="Instance kind"></div>
+            <form id="c-form" class="create-form">
+              <div id="c-fields"></div>
+              <pre id="c-error" class="error-banner" hidden></pre>
+              <p id="c-progress" class="pane-progress" hidden></p>
+            </form>
+          </div>
+          <footer class="pane-foot">
+            <button id="c-go" class="btn primary" type="submit" form="c-form">Add and launch</button>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <p id="fatal" class="fatal" hidden>
+      This window did not receive the app's instance manager API, so it cannot list or launch
+      anything. Close it and open Launch Instance from the File menu again.
+    </p>
+
+    <script type="module" src="./instances.ts"></script>
+  </body>
+</html>
