@@ -89,6 +89,13 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          # build-push-action does not read the login-action step above: it takes
+          # a token through this input and otherwise falls back to whatever
+          # credentials the runner happens to carry. Passing it is what turns the
+          # workflow's `packages: write` grant into the push, and without it the
+          # build succeeds and the push is denied with `write_package`.
+          secrets: |
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           labels: |
             org.opencontainers.image.title=dsh-sandbox
             org.opencontainers.image.description=Containerized DeepSeek Harness with the fork's plugins pre-installed
