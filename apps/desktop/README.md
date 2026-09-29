@@ -57,23 +57,24 @@ A packaged build carries its own harness, so a user can copy the `.dmg` into
 PATH**. Two pieces make that work:
 
 - `scripts/stage-harness.mjs` materializes the closure into `resources/harness`
-  — `lib/bin.js` plus a flat `node_modules` — from the **pinned local
-  `deepseek-harness` checkout**, not from the npm registry. Whatever version and
-  revision that checkout is on is what ships, including its local plugins and
-  skills. Point it elsewhere with `--workspace` or `$DSH_HARNESS_WORKSPACE`
-  (default: a sibling `../deepseek-harness`).
+  — `lib/bin.js` plus a flat `node_modules` — from the **harness checkout this
+  app lives in**, not from the npm registry. The app sits at `apps/desktop`, so
+  that is the repository root two levels up, and the revision it is on is what
+  ships, including its local plugins and skills. Point it elsewhere with
+  `--workspace` or `$DSH_HARNESS_WORKSPACE`, which also covers a standalone
+  app checkout next to a sibling `../deepseek-harness`.
 - The app boots that closure with its own Electron binary as the Node runtime
   (`ELECTRON_RUN_AS_NODE=1`), because Electron embeds Node ≥ 22 — the harness's
   engine floor. See `src/main/instances/bundled.ts`.
 
 ```bash
-pnpm stage:harness              # stage from the pinned checkout (its current build)
+pnpm stage:harness              # stage from this checkout (its current build)
 pnpm stage:harness -- --build   # build the harness first
 pnpm dist:release               # stage + build + dmg in one step
 ```
 
 Staging fails loudly rather than shipping a broken closure: it verifies the
-deployed version matches the pinned version, that the CLI entry and web UI are
+deployed version matches the workspace version, that the CLI entry and web UI are
 present, that node-pty's macOS `spawn-helper` is executable, and that every
 runtime dependency resolves the way Node's own loader would
 (`scripts/lib/resolve-closure.ts`).
@@ -158,28 +159,30 @@ DSH_PROBE_USER=root DSH_PROBE_KEY=/path/to/key \
 
 ### Releases
 
-`.github/workflows/release-macos.yml` builds the `.dmg` on a macOS runner: it
-checks out the harness, builds it, stages the closure, typechecks, unit-tests,
-**smoke-tests the bundled harness**, then packages and uploads the `.dmg`. It
-also publishes a GitHub Release on `v*` tags.
+`.github/workflows/release-macos.yml` builds the `.dmg` on a macOS runner. The
+app ships inside the harness repository, at `apps/desktop`, so the workflow checks
+out that one repository: it installs and builds the harness at the root, then
+installs, typechecks and unit-tests the app, stages the closure, **smoke-tests the
+bundled harness**, and packages and uploads the `.dmg`. It also publishes a GitHub
+Release on `v*` tags.
 
 This repository is **private**, so its Releases and Actions artifacts need an
 authenticated account with access — there is no anonymous download link. Signed
 in with the `gh` CLI:
 
 ```bash
-gh release download v0.1.0 --repo n0pe-sled/DeepSeek-App --pattern '*.dmg'
+gh release download v0.1.0 --repo n0pe-sled/deepseek-harness --pattern '*.dmg'
 ```
 
 To hand the app to someone without a GitHub account, download the `.dmg` and
 send the file itself; the app is self-contained and needs no repository access
 to run.
 
-The harness checkout defaults to the `DSH_HARNESS_REPOSITORY` / `DSH_HARNESS_REF`
-repository variables and can be overridden per run. `DSH_HARNESS_REF` is pinned
-to a full commit SHA, so a release keeps staging the same harness revision even
-after the harness branch moves; bump the variable to pick up new harness work.
-Set `MAC_CERTIFICATE`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
+The harness closure is staged from this repository's own tree at the revision
+the run checked out, so a release carries a harness whose revision the build
+summary reports. There is no harness repository variable and no harness ref to pin
+any more: pin a release to a tag or a commit of this repository instead. Set
+`MAC_CERTIFICATE`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to sign with a Developer ID
 and notarize. `MAC_CERTIFICATE` is the base64 of a `.p12` carrying the Developer
 ID Application certificate **and its private key**, exported from the login keychain

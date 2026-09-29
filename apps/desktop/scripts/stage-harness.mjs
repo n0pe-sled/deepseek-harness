@@ -1,9 +1,11 @@
 /**
- * Stage the harness closure this app ships — from the PINNED local checkout.
+ * Stage the harness closure this app ships, from the checkout it lives in.
  *
  * The app bundles the `deepseek-harness` workspace at whatever version and
- * revision that checkout is on (0.1.1-rc.2 today), including its local plugins
- * and skills. It deliberately never installs a published `@deepseek-ai/dsh`
+ * revision that checkout is on, including its local plugins and skills. The app
+ * lives at `apps/desktop` inside it, so staging reads the repository root two
+ * levels up unless `--workspace` or `$DSH_HARNESS_WORKSPACE` points elsewhere.
+ * It deliberately never installs a published `@deepseek-ai/dsh`
  * from the npm registry: the shipped harness must be the same bytes the
  * developer runs locally, not whatever `latest` happens to point at.
  *
@@ -24,7 +26,7 @@
  * app boots it with its own Electron binary as the Node runtime; see
  * src/main/instances/bundled.ts.
  *
- *   node scripts/stage-harness.mjs                        # pinned checkout, current build
+ *   node scripts/stage-harness.mjs                        # this checkout, current build
  *   node scripts/stage-harness.mjs --build                # run the harness build first
  *   node scripts/stage-harness.mjs --workspace /path/to/deepseek-harness
  *   node scripts/stage-harness.mjs --keep-stage           # keep the scratch deploy
@@ -84,22 +86,44 @@ function parseArgs(argv) {
   return opts
 }
 
-/** Locate the harness checkout: explicit flag, $DSH_HARNESS_WORKSPACE, or a sibling. */
+/**
+ * Locate the harness checkout.
+ *
+ * The app lives at `apps/desktop` inside the harness, so the in-repo root is
+ * `../..` and is searched FIRST: a developer who also keeps a sibling
+ * `../deepseek-harness` checkout must still stage the harness the app ships
+ * inside. An explicit `--workspace` and `$DSH_HARNESS_WORKSPACE` keep working,
+ * and a sibling checkout still resolves when the app stands alone.
+ *
+ * A candidate has to look like the harness root, not merely be named like one.
+ * The staging output (`resources/harness`) and the scratch worktree
+ * (`resources/.harness-worktree`) sit inside the app, and staging runs
+ * `pnpm deploy` from whichever workspace this returns. Accepting either as the
+ * root would deploy from inside the tree being staged.
+ */
 function resolveWorkspace(explicit) {
   const candidates = [
     explicit,
     process.env.DSH_HARNESS_WORKSPACE,
+    resolve(repoRoot, '..', '..'),
     resolve(repoRoot, '..', 'deepseek-harness'),
   ].filter((c) => typeof c === 'string' && c !== '')
   for (const candidate of candidates) {
     const dir = resolve(candidate)
-    if (existsSync(join(dir, 'apps', 'cli', 'package.json')) && existsSync(join(dir, 'pnpm-workspace.yaml'))) {
-      return dir
-    }
+    if (isHarnessRoot(dir)) return dir
   }
   throw new Error(
     `no harness workspace found (looked at: ${candidates.join(', ')}). Pass --workspace /path/to/deepseek-harness.`,
   )
+}
+
+/**
+ * True when a directory is a harness root: `apps/cli/package.json` names the
+ * workspace `dsh` deploys from, and `pnpm-workspace.yaml` is the config
+ * `pnpm deploy` reads. Both are required.
+ */
+function isHarnessRoot(dir) {
+  return existsSync(join(dir, 'apps', 'cli', 'package.json')) && existsSync(join(dir, 'pnpm-workspace.yaml'))
 }
 
 function run(cmd, args, cwd) {

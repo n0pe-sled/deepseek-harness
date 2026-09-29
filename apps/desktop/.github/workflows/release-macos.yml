@@ -1,10 +1,13 @@
 name: Release macOS app
 
 # Builds the self-contained .dmg: the Electron shell plus the harness closure
-# staged from a PINNED deepseek-harness checkout (see scripts/stage-harness.mjs).
-# The harness version is whatever that checkout is on — this workflow never
-# installs a published @deepseek-ai/dsh from the registry, because the shipped
-# harness must be the same bytes the developer runs locally.
+# staged from this repository's own tree (see apps/desktop/scripts/stage-harness.mjs).
+# The app lives at apps/desktop inside the harness repository, so the single
+# checkout below supplies both halves: the harness source at the root and the app in
+# its subdirectory. The harness version staged is whatever this repository is on at
+# the revision the run checked out — the workflow never installs a published
+# @deepseek-ai/dsh from the registry, because the shipped harness must be the same
+# bytes the developer runs locally.
 #
 # Tracks the harness revision in the build summary so a release always says
 # which harness it carries.
@@ -20,17 +23,10 @@ on:
       - 'v*'
   pull_request:
     paths:
-      - 'src/**'
-      - 'scripts/**'
-      - 'package.json'
-      - 'electron.vite.config.ts'
+      - 'apps/desktop/**'
       - '.github/workflows/release-macos.yml'
   workflow_dispatch:
     inputs:
-      harness_ref:
-        description: 'deepseek-harness git ref to stage (default: the workspace ref this run resolved to)'
-        required: false
-        type: string
       arch:
         description: 'macOS architecture to build'
         required: true
@@ -57,36 +53,11 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Check out the app repository
+      # One checkout, at the repository root: the harness workspace and the app
+      # under apps/desktop come from the same revision, so the closure staged
+      # below is always the harness this run carries.
+      - name: Check out the repository
         uses: actions/checkout@v4
-        with:
-          path: app
-
-      # The harness source is a separate repository. When this workflow lives
-      # inside the harness repo itself (app in a subdirectory) the checkout above
-      # already contains it, and resolve_workspace finds it without this step.
-      - name: Check out the pinned harness
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.DSH_HARNESS_REPOSITORY || 'n0pe-sled/deepseek-harness' }}
-          ref: ${{ inputs.harness_ref || vars.DSH_HARNESS_REF || 'master' }}
-          path: harness
-          token: ${{ secrets.DSH_HARNESS_TOKEN || github.token }}
-        continue-on-error: true
-
-      - name: Locate the harness workspace
-        id: harness
-        run: |
-          # Prefer a checkout that actually looks like the harness workspace.
-          for candidate in "$GITHUB_WORKSPACE/harness" "$GITHUB_WORKSPACE/app/.." "$GITHUB_WORKSPACE"; do
-            if [ -f "$candidate/apps/cli/package.json" ] && [ -f "$candidate/pnpm-workspace.yaml" ]; then
-              echo "path=$candidate" >> "$GITHUB_OUTPUT"
-              echo "harness workspace: $candidate" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          done
-          echo "::error::no harness workspace found; set the DSH_HARNESS_REPOSITORY variable or dispatch with harness_ref"
-          exit 1
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -98,45 +69,50 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
+          # The harness lockfile is the root one; apps/desktop keeps its own.
+          cache-dependency-path: pnpm-lock.yaml
 
-      # The harness workspace is large; install it before the app so a failure
-      # here is unambiguous.
+      # The harness workspace is large; install and build it before the app so a
+      # failure here is unambiguous.
       - name: Install harness dependencies
-        working-directory: ${{ steps.harness.outputs.path }}
         run: pnpm install --frozen-lockfile
 
       - name: Build the harness
-        working-directory: ${{ steps.harness.outputs.path }}
         run: pnpm run build
 
+      # apps/desktop is deliberately outside the root pnpm workspace (it owns a
+      # lockfile and an electron tree), so it installs against its own
+      # pnpm-workspace.yaml from its own directory.
       - name: Install app dependencies
-        working-directory: app
+        working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck the app
-        working-directory: app
+        working-directory: apps/desktop
         run: pnpm typecheck
 
       - name: Unit tests
-        working-directory: app
+        working-directory: apps/desktop
         run: pnpm test
 
-      - name: Stage the pinned harness into the app
-        working-directory: app
+      # stage-harness resolves the workspace two levels up from apps/desktop.
+      # DSH_HARNESS_WORKSPACE names it outright so a red staging run cannot
+      # be mistaken for a resolution problem.
+      - name: Stage the harness into the app
+        working-directory: apps/desktop
         env:
-          DSH_HARNESS_WORKSPACE: ${{ steps.harness.outputs.path }}
+          DSH_HARNESS_WORKSPACE: ${{ github.workspace }}
         run: pnpm stage:harness
 
       - name: Build the Electron app
-        working-directory: app
+        working-directory: apps/desktop
         run: pnpm build
 
       # Proves the packaged closure actually boots before a .dmg is published:
       # the smoke run spawns the bundled harness, loads the UI over the dsh-app
       # protocol and asserts the settings surface answers.
       - name: Smoke-test the bundled harness
-        working-directory: app
+        working-directory: apps/desktop
         env:
           DSH_SMOKE: '1'
           DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
@@ -147,7 +123,7 @@ jobs:
           echo "smoke test passed" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build the .dmg
-        working-directory: app
+        working-directory: apps/desktop
         env:
           # When these secrets exist electron-builder signs with a Developer ID
           # and notarizes; otherwise it produces an unsigned build that runs
@@ -169,7 +145,7 @@ jobs:
           # directory aborts the build with "<dir> not a file".
           #
           # GitHub already sets CSC_LINK in the ambient environment to the
-          # directory the app is checked out into, which is exactly such a
+          # directory the repository is checked out into, which is exactly such a
           # directory, so the no-certificate path has to remove the variable
           # from the environment rather than blank it. Testing whether CSC_LINK
           # is non-empty cannot decide this: both the shadowed directory and a
@@ -193,7 +169,7 @@ jobs:
       # Notarize and staple the image, so opening it is as quiet as opening the
       # app: the user mounts it, drags the app out, and runs it.
       - name: Notarize and staple the .dmg
-        working-directory: app
+        working-directory: apps/desktop
         env:
           # The certificate's PRESENCE is the flag, exactly as in the build step:
           # `secrets` cannot be read in a step-level `if`, so the branch is in
@@ -224,20 +200,15 @@ jobs:
           done
 
       - name: Summarize the release
-        env:
-          # Passed through the environment rather than interpolated into the
-          # script: these values are paths, and a step output pasted into a shell
-          # string is one quoting mistake away from a broken or unsafe command.
-          HARNESS_WORKSPACE: ${{ steps.harness.outputs.path }}
         run: |
           # Read versions with a file argument. `require()` resolves a bare
-          # `app/package.json` as a PACKAGE named "app" and fails with
-          # "Cannot find module"; relative paths have to be spelled `./…`.
-          HARNESS_VERSION=$(node -p "require(process.argv[1]).version" "$HARNESS_WORKSPACE/apps/cli/package.json")
-          APP_VERSION=$(node -p "require(process.argv[1]).version" "./app/package.json")
-          HARNESS_REV=$(git -C "$HARNESS_WORKSPACE" rev-parse --short HEAD 2>/dev/null || echo unknown)
-          DMG=$(basename ./app/release/*.dmg)
-          ls -lh ./app/release/*.dmg >> "$GITHUB_STEP_SUMMARY"
+          # path as a PACKAGE and fails with "Cannot find module"; relative
+          # paths have to be spelled `./…`.
+          HARNESS_VERSION=$(node -p "require(process.argv[1]).version" "./apps/cli/package.json")
+          APP_VERSION=$(node -p "require(process.argv[1]).version" "./apps/desktop/package.json")
+          HARNESS_REV=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+          DMG=$(basename ./apps/desktop/release/*.dmg)
+          ls -lh ./apps/desktop/release/*.dmg >> "$GITHUB_STEP_SUMMARY"
           {
             echo ""
             echo "| item | value |"
@@ -253,7 +224,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dsh-desktop-dmg-${{ inputs.arch || 'arm64' }}
-          path: app/release/*.dmg
+          path: apps/desktop/release/*.dmg
           if-no-files-found: error
           retention-days: 14
 
@@ -261,7 +232,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/release/*.dmg
+          files: apps/desktop/release/*.dmg
           generate_release_notes: true
           body: |
             macOS build of DSH Desktop, bundling DeepSeek Harness.
