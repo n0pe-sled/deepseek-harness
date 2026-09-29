@@ -1,0 +1,10 @@
+# Machine-local state (never commit)
+node_modules/
+.pnpm-store/
+
+# Editor / OS noise
+.DS_Store
+*.log
+
+# trufflehog exclude helper (local)
+.trufflehog-exclude
