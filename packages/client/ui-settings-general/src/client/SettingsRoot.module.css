@@ -4,16 +4,19 @@
    panel is a two-column layout — 188px nav rail + content column with a
    54px header and the 24px-padded options area. */
 
-/* Trigger row: the 42px foot-row box shared with the Cordis footer action. */
+/* Trigger box: a plain 36px icon control in the sidebar's control row,
+   the same treatment as the New Session and search controls beside it. The
+   label rides along visually hidden so the button keeps its accessible name. */
 .trigger {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: calc(100% + 4px);
-  height: 42px;
-  margin: 4px -2px;
-  padding: 0 10px 0 8px;
+  justify-content: center;
+  gap: 0;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
   box-sizing: border-box;
   border: none;
   border-radius: 12px;

@@ -1,6 +1,10 @@
 import { useEffect } from 'react'
 
-const DEFAULT_CLIENT_TITLE = 'DSH Local Build'
+/**
+ * Product title for a build that selects none; matches the shell's own
+ * `DEFAULT_CLIENT_TITLE` so the tab and the sidebar brand name agree.
+ */
+const DEFAULT_CLIENT_TITLE = 'n0pe-sled AI'
 
 /** Props for the browser title projection. */
 export interface DocumentTitleProps {

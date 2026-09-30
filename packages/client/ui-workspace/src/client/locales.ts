@@ -1,6 +1,6 @@
 /**
  * `workspace` namespace dictionaries: the browsing region (section header,
- * search, tree rows, dialogs) and the pick/add flow. Runtime failure
+ * search box, tree rows, dialogs) and the pick/add flow. Runtime failure
  * messages (wire error strings) pass through untranslated by policy.
  */
 
@@ -12,6 +12,7 @@ export const en = {
   'group.ungrouped': 'Ungrouped',
   'session.new': 'New Session',
   'section.workspaces': 'Workspaces',
+  'section.pinned': 'Pinned Sessions',
   'section.sessions': 'Sessions',
   'viewOptions.label': 'View options',
   'groupBy.label': 'Group by',
@@ -26,6 +27,8 @@ export const en = {
   'empty.noMatches': 'No matches',
   'workspace.add': 'Add workspace',
   'search.sessions.aria': 'Search sessions',
+  'search.open': 'Open session search',
+  'search.close': 'Close session search',
   'search.placeholder': 'Search sessions...',
   'search.clear': 'Clear search',
   'search.results.aria': 'Search results',
@@ -48,6 +51,8 @@ export const en = {
   'delete.pending': 'Deleting workspace…',
   'menu.fork': 'Fork session',
   'menu.archiveSession': 'Archive session',
+  'menu.pin': 'Pin session',
+  'menu.unpin': 'Unpin session',
   'sessions.count.one': '{n} session',
   'sessions.count.other': '{n} sessions',
   'actions.workspace.aria': 'Workspace actions for {name}',

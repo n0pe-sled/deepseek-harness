@@ -519,6 +519,16 @@ export const IconStopFill16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** ic_ds_pin_fill_16 */
+export const IconPinFill16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M3.5 1.5h9l-2.25 3.5v4L8 13.5l-2.25-4v-4L3.5 1.5Z"
+      fill="currentColor"
+    />
+  </svg>
+)
+
 /** ic_ds_paperclip_outline_16 */
 export const IconPaperclipOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

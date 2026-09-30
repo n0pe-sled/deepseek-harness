@@ -3,7 +3,7 @@ import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, workspaceLabel, relativeTime,
+  deriveFlat, deriveGroups, derivePinned, deriveSearchResults, workspaceLabel, relativeTime,
   UNGROUPED_KEY, UNGROUPED_LABEL,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
@@ -251,6 +251,52 @@ describe('deriveFlat', () => {
   })
 })
 
+describe('derivePinned', () => {
+  it('resolves stored pin ids in pin order with repeats collapsed', () => {
+    const sessions = list(summary('one', 1), summary('two', 2), summary('three', 3))
+    const rows = derivePinned(sessions, noArchive, ['three', 'absent', 'one', 'three'])
+    expect(rows.map(row => row.id)).toEqual([sid('three'), sid('one')])
+  })
+
+  it('keeps the current blank pin and drops archived, subagent-origin, and stale blank pins', () => {
+    const current = { ...summary('current-blank', 5), blank: true }
+    const stale = { ...summary('stale-blank', 4), blank: true }
+    const subagent = { ...summary('subagent', 3), origin: 'subagent' as const }
+    const sessions = {
+      ...list(summary('kept', 1), current, stale, subagent, summary('gone', 2)),
+      current: current.id,
+    }
+    const rows = derivePinned(
+      sessions,
+      archived('gone'),
+      ['gone', 'stale-blank', 'subagent', 'current-blank', 'kept'],
+    )
+    // The stored pin ids all survive (a session absent this frame repins when
+    // it returns); only the visible projection drops.
+    expect(rows.map(row => row.id)).toEqual([current.id, sid('kept')])
+    expect(rows.map(row => row.title)).toEqual(['New Session', 'kept'])
+  })
+
+  it('projects activity, pending interaction, and descendant runs onto pinned rows', () => {
+    const parent = {
+      ...summary('parent', 4), running: false, completed: true,
+      pendingInteraction: 'plan-review' as const,
+    }
+    const child = {
+      ...summary('child', 3), parentId: parent.id, origin: 'subagent' as const, running: true,
+    }
+    const rows = derivePinned(list(parent, child), noArchive, ['parent'])
+    expect(rows[0]).toMatchObject({
+      id: parent.id,
+      running: false,
+      runningSubagentCount: 1,
+      pendingInteraction: 'plan-review',
+      completed: true,
+      blank: false,
+    })
+  })
+})
+
 describe('deriveSearchResults archive filtering', () => {
   it('archived sessions never match — not by title and not via a backend content hit', () => {
     const hit = summary('hit', 2)
@@ -408,6 +454,20 @@ describe('createWorkspaceViewStore', () => {
       sessionOrderByAccount: { alpha: ['one', 'two'] },
       sessionUpdatedAtByAccount: { alpha: { one: 1, two: 2 } },
     })
+  })
+
+  it('pins in pin order without duplicates and unpins by id', () => {
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot().pinnedSessionIds).toEqual([])
+    store.actions.pinSession('one')
+    store.actions.pinSession('two')
+    store.actions.pinSession('one')
+    expect(store.getSnapshot().pinnedSessionIds).toEqual(['one', 'two'])
+    store.actions.unpinSession('one')
+    expect(store.getSnapshot().pinnedSessionIds).toEqual(['two'])
+    // Unpinning an id that is not pinned is a no-op, not a state change.
+    store.actions.unpinSession('absent')
+    expect(store.getSnapshot().pinnedSessionIds).toEqual(['two'])
   })
 
   it('removes view state outside the retained Workspace key set', () => {

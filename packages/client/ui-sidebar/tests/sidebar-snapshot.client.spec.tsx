@@ -8,7 +8,7 @@
  * holes (sidebar.workspaces / sidebar.settings) have no registrant here, so
  * the snapshots pin the shell chrome itself.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, waitFor } from '@testing-library/react'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -18,12 +18,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // the one shipped English copy, so they state the browser they assume.
 usePinnedBrowserLanguages('en-US')
 
-beforeEach(() => { vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abc1234') })
-
-afterEach(() => {
-  cleanup()
-  vi.unstubAllEnvs()
-})
+afterEach(() => { cleanup() })
 
 /**
  * Boot the package over the slot test runtime. The default bench stays on
@@ -45,8 +40,8 @@ describe('sidebar shell snapshots', () => {
   it('renders the expanded column in the default locale (en, no setLocale)', async () => {
     const { runtime } = await bench()
     const slot = runtime.renderSlot('sidebar', { collapsed: false, width: 300 })
-    // Wordmark + capsule both start a session in the expanded state.
-    expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(2)
+    // The + icon control is the expanded state's one session starter.
+    expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
     expect(slot.container).toMatchSnapshot()
     await runtime.dispose()
   })
@@ -56,11 +51,13 @@ describe('sidebar shell snapshots', () => {
     const slot = runtime.renderSlot('sidebar', { collapsed: false, width: 300 })
     const shell = slot.container.firstElementChild
     slot.update({ collapsed: true, width: 56 })
-    // The wide content (wordmark shortcut) unmounts at the 150ms settle;
-    // only the rail's capsule remains a New-session button.
+    // The wide content (brand name, search region, header-action occupants)
+    // unmounts at the 150ms settle; the rail keeps the shell's + icon control
+    // as its only session starter.
     await waitFor(() => {
-      expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
+      expect(slot.container.querySelector('[data-slot="sidebar.header.search"]')).toBeNull()
     })
+    expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
     expect(slot.container).toMatchSnapshot()
     // Same tree position: the owner flip re-rendered the shell in place.
     expect(slot.container.firstElementChild).toBe(shell)

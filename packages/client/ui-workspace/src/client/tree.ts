@@ -273,6 +273,35 @@ export function deriveGroups(
 }
 
 /**
+ * Derive the Pinned section rows: stored pin ids resolved through the list in
+ * pin order. Unknown, archived, subagent-origin, and blank sessions drop at
+ * render; the stored pin id stays, so a temporarily absent session repins
+ * when it reappears.
+ * @param list - sessions list snapshot (`current` feeds the visibility rule).
+ * @param archivedSessionIds - registry-global archive set.
+ * @param pinnedIds - stored pin ids, pin order first.
+ * @returns pinned rows in pin order.
+ */
+export function derivePinned(
+  list: SessionListState,
+  archivedSessionIds: readonly SessionId[],
+  pinnedIds: readonly string[],
+): SessionNode[] {
+  const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
+  const rows: SessionNode[] = []
+  const seen = new Set<string>()
+  for (const id of pinnedIds) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const summary = list.byId[id as SessionId]
+    if (summary === undefined || !sessionVisible(summary, list.current, archived)) continue
+    rows.push(sessionNode(summary, descendants))
+  }
+  return rows
+}
+
+/**
  * Derive the flat session list ("In one list" mode): every session — fork
  * children included — as a top-level row, strictly newest-first. No grouping,
  * no parent/child adjacency. Content search lives outside this derivation

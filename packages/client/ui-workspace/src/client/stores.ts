@@ -1,9 +1,9 @@
 /**
- * The workspace browser's viewing store: the session-list grouping mode,
- * persisted across reloads. Module level exports the factory only (a
- * module-level handle would pin the store identity across plugin reloads);
- * register() receives the factory and the browser derives its PropsStore
- * share from the return type.
+ * The workspace browser's viewing store: the session-list grouping mode and the
+ * session-search surface, persisted across reloads. Module level exports the
+ * factory only (a module-level handle would pin the store identity across plugin
+ * reloads); apply constructs one handle and mounts it under the browser plus both
+ * search contributions, which derive their PropsStore share from the return type.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -25,6 +25,12 @@ type WorkspaceViewState = {
   sessionOrderByAccount: Record<string, string[]>
   /** Last observed update timestamps per order account for one-time promotion events. */
   sessionUpdatedAtByAccount: Record<string, Record<string, number>>
+  /** Session ids pinned to the Pinned section, in pin order. */
+  pinnedSessionIds: string[]
+  /** Whether the sidebar's session-search box is open. */
+  searchExpanded: boolean
+  /** Session-search text, shared by the shell's trigger and the box below it. */
+  query: string
 }
 
 /**
@@ -43,6 +49,10 @@ type WorkspaceViewActions = {
     updatedAt: Record<string, number>,
   ) => void
   setSessionOrder: (draft: WorkspaceViewState, accountKey: string, order: string[]) => void
+  pinSession: (draft: WorkspaceViewState, sessionId: string) => void
+  unpinSession: (draft: WorkspaceViewState, sessionId: string) => void
+  setSearchExpanded: (draft: WorkspaceViewState, expanded: boolean) => void
+  setSearchQuery: (draft: WorkspaceViewState, query: string) => void
 }
 
 /**
@@ -57,12 +67,26 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       groupExpansion: {},
       sessionOrderByAccount: {},
       sessionUpdatedAtByAccount: {},
+      pinnedSessionIds: [],
+      searchExpanded: false,
+      query: '',
     }),
-    persist: 'dsh.workspace.view.v5',
+    // v6 → v7: adds searchExpanded and query. Rehydration replaces the whole
+    // state, so the new fields need the new storage key; pre-upgrade view
+    // preferences (grouping, order, expansion, pins) reset once.
+    persist: 'dsh.workspace.view.v7',
     actions: {
       setGroupBy: (d, mode: SessionGroupBy) => { d.groupBy = mode },
       setOrderBy: (d, mode: SessionOrderBy) => { d.orderBy = mode },
       setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
+      pinSession: (d, sessionId: string) => {
+        if (!d.pinnedSessionIds.includes(sessionId)) d.pinnedSessionIds.push(sessionId)
+      },
+      unpinSession: (d, sessionId: string) => {
+        d.pinnedSessionIds = d.pinnedSessionIds.filter(id => id !== sessionId)
+      },
+      setSearchExpanded: (d, expanded: boolean) => { d.searchExpanded = expanded },
+      setSearchQuery: (d, query: string) => { d.query = query },
       retainAccountKeys: (d, workspaceKeys: readonly string[]) => {
         const retained = new Set(workspaceKeys)
         d.groupExpansion = Object.fromEntries(

@@ -60,16 +60,53 @@ describe('SidebarRoot.module.css', () => {
 
   it('gives shell rail controls the same base anchor for their shared translation', () => {
     expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
-    expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')
-    expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
+    expect(declarations('.newSession')?.get('width')).toBe('36px')
+    expect(declarations('.newSession')?.get('border-radius')).toBe('12px')
   })
 
-  it('keeps the slotted brand row at the full artwork height', () => {
-    expect(declarations('.brandIdentity')?.get('height')).toBe('24px')
+  it('keeps the slotted brand row at the full artwork height, centered', () => {
+    expect(declarations('.brandMark')?.get('flex')).toBe('none')
+    expect(declarations('.brandName')?.get('flex')).toBe('1')
+    expect(declarations('.brandName')?.get('justify-content')).toBe('center')
     expect(declarations('.brandName')?.get('height')).toBe('24px')
     expect(declarations('.brandName')?.get('line-height')).toBe('24px')
     expect(declarations('.brandName')?.get('font-size')).toBe('18px')
     expect(declarations('.fallbackBrandName')?.get('font-size')).toBe('17px')
     expect(declarations('.fallbackBrandName')?.get('white-space')).toBe('nowrap')
+  })
+
+  it('pairs the New Session icon control with its header-action occupants', () => {
+    expect(declarations('.controlRow')?.get('display')).toBe('flex')
+    expect(declarations('.headerActions')?.get('display')).toBe('flex')
+    expect(declarations('.newSession')?.get('height')).toBe('36px')
+    expect(declarations('.newSession')?.get('border-radius')).toBe('12px')
+    // The rail has no header-action occupants: the row collapses to the shell's
+    // own icon control.
+    expect(css).not.toContain('.collapsed .headerActions')
+  })
+
+  it('seats the settings trigger in the control row and the search box under it', () => {
+    // The seat places the occupant beside New Session without owning its box.
+    expect(declarations('.settingsSeat')?.get('flex')).toBe('none')
+    expect(declarations('.settingsSeat')?.get('display')).toBe('flex')
+    expect(declarations('.settingsSeat')?.get('align-items')).toBe('center')
+    // The search region spans the column's content width, wide only.
+    expect(declarations('.headerSearch')?.get('flex')).toBe('none')
+    expect(declarations('.headerSearch')?.get('display')).toBe('flex')
+    expect(declarations('.headerSearch')?.get('width')).toBe('100%')
+    expect(css).not.toContain('.collapsed .headerSearch')
+  })
+
+  it('spans both foot seats across the column and centers them in the rail', () => {
+    expect(declarations('.footArea')?.get('flex-direction')).toBe('column')
+    expect(declarations('.settingsArea')?.get('flex')).toBe('none')
+    expect(declarations('.settingsArea')?.get('width')).toBe('100%')
+    expect(declarations('.footerActions')?.get('flex')).toBe('none')
+    expect(declarations('.footerActions')?.get('width')).toBe('100%')
+    expect(declarations('.collapsed .footArea')?.get('align-items')).toBe('center')
+    expect(declarations('.collapsed .settingsArea')?.get('display')).toBe('flex')
+    expect(declarations('.collapsed .settingsArea')?.get('width')).toBe('auto')
+    expect(declarations('.collapsed .footerActions')?.get('justify-content')).toBe('center')
+    expect(declarations('.collapsed .footerActions')?.get('width')).toBe('auto')
   })
 })

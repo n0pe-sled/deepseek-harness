@@ -2,13 +2,15 @@
  * Sidebar shell: column geometry only. Collapse is a slide plus crossfade:
  * content freezes at its expanded width (inline style) and fades out in place
  * while the sliding column (AppFrame grid tracks) clips it — nothing reflows
- * mid-slide. At settle the wide-only content unmounts and the four upper
- * controls enter the 56px rail from the same horizontal offset (one icon each,
- * same top-down order) on one fade that ends with the slide. The bottom-pinned
- * settings control only fades. The workspace/session browsing region between
- * the New Session button and the foot is the `sidebar.workspaces` registrant's,
- * and the foot holds `sidebar.settings` plus `sidebar.footer.action`; the shell
- * hands them the wide flag (plus an expand request callback for the browser).
+ * mid-slide. At settle the wide-only content unmounts and the upper controls
+ * enter the 56px rail from the same horizontal offset (one icon each,
+ * same top-down order) on one fade that ends with the slide. The rail's
+ * settings seat only fades. Below the brand row the shell lays out the icon
+ * control row (New Session, the settings seat, `sidebar.header.action`), the
+ * `sidebar.header.search` region, the `sidebar.workspaces` browsing region and
+ * the foot; besides New Session every seat in that stack is a registrant, and
+ * the shell hands each one the wide flag (plus an expand request callback for
+ * the browser).
  *
  * The column also owns whether the scroll regions nested in it draw a
  * scrollbar at all: the shell tracks the pointer and rebinds ui-theme's
@@ -126,33 +128,19 @@ export function SidebarRoot({
       onPointerLeave={() => { armLinger() }}
     >
       <div className={css.logoRow}>
-        {/* Expanded, the brand doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. */}
+        {/* Wide only: the rail's resting mark lives in the toggle's hover
+            swap below, so a standalone mark would double it. */}
         {wide && (
-          <button
-            type="button"
-            className={clsx(css.brand, css.wide)}
-            aria-label={t('session.new.label')}
-            onClick={() => { startSession() }}
-          >
-            <span className={css.brandIdentity} aria-hidden="true">
-              <span className={css.brandMark}>
-                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
-              </span>
-              <span className={css.brandName}>
-                {renderSlot('sidebar.brand.name', {}, {
-                  fallback: (
-                    <>
-                      <span className={css.fallbackBrandName}>DSH Local Build</span>
-                      {process.env.DSH_CLIENT_COMMIT_HASH
-                        ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
-                        : null}
-                    </>
-                  ),
-                })}
-              </span>
-            </span>
-          </button>
+          <span className={clsx(css.brandMark, css.wide)} aria-hidden="true">
+            {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+          </span>
+        )}
+        {wide && (
+          <span className={clsx(css.brandName, css.wide)}>
+            {renderSlot('sidebar.brand.name', {}, {
+              fallback: <span className={css.fallbackBrandName}>n0pe-sled AI</span>,
+            })}
+          </span>
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
@@ -174,20 +162,33 @@ export function SidebarRoot({
         </Tooltip>
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
-        <button
-          type="button"
-          className={css.newSession}
-          aria-label={t('session.new.label')}
-          onClick={() => { startSession() }}
-        >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
-        </button>
-      </Tooltip>
+      {/* Icon control row: New Session, then the settings seat, then optional
+          header actions. The settings seat sits directly beside the New Session
+          control; the rail keeps it in the foot because two 36px boxes do not fit
+          in one rail row. Every control is icon-only and carries a tooltip —
+          there is no label span to read. */}
+      <div className={clsx(css.controlRow, wide && css.wide)}>
+        <Tooltip label={t('session.new.label')} delayMs={500}>
+          <button
+            type="button"
+            className={css.newSession}
+            aria-label={t('session.new.label')}
+            onClick={() => { startSession() }}
+          >
+            <IconNewChatOutline16 size={wide ? 16 : 18} />
+          </button>
+        </Tooltip>
+        {wide && (
+          <div className={css.settingsSeat}>{renderSlot('sidebar.settings', { wide })}</div>
+        )}
+        {wide && <div className={css.headerActions}>{renderSlot('sidebar.header.action', { wide })}</div>}
+      </div>
 
-      {/* The browsing region fills the column between the controls and the
+      {/* Search region: the workspace search box sits directly under the icon
+          control row, wide only (the rail has no room for it). */}
+      {wide && <div className={css.headerSearch}>{renderSlot('sidebar.header.search', { wide })}</div>}
+
+      {/* The browsing region fills the column between the search region and the
           foot in both states; its rail icon column rides the same slot. */}
       <div className={css.regionArea}>
         {renderSlot('sidebar.workspaces', {
@@ -196,14 +197,17 @@ export function SidebarRoot({
         })}
       </div>
 
-      {/* Footer actions stack above Settings in both sidebar widths. */}
+      {/* Footer actions stack above the rail's settings seat; expanding moves
+          that seat into the control row, so a wide column ends at the actions. */}
       <div className={css.footArea}>
         <div className={css.footerActions}>
           {renderSlot('sidebar.footer.action', { wide })}
         </div>
-        <div className={css.settingsArea}>
-          {renderSlot('sidebar.settings', { wide })}
-        </div>
+        {!wide && (
+          <div className={css.settingsArea}>
+            {renderSlot('sidebar.settings', { wide })}
+          </div>
+        )}
       </div>
     </div>
   )

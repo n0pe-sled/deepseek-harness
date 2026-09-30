@@ -1,11 +1,13 @@
 /**
  * Sidebar slot contract: the registrant-side props composition for the
  * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
- * owns column geometry (fold state machine, brand row, New Session);
- * everything between the section header and the list bottom is the
- * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
- * `sidebar.settings` registrant's (ui-settings), followed by optional footer
- * actions in `sidebar.footer.action`.
+ * owns column geometry (fold state machine, brand row), the control row (New
+ * Session, the settings seat, `sidebar.header.action`) and the wide-only
+ * `sidebar.header.search` region directly under it. The `sidebar.workspaces`
+ * registrant (ui-workspace) owns the browsing region between that search
+ * region and the foot; the foot carries `sidebar.footer.action` and, in the rail,
+ * the settings seat. `sidebar.settings` is the settings seat (ui-settings),
+ * which the shell renders in the control row when wide.
  */
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
@@ -27,21 +29,36 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar.brand.name': { kind: 'single'; scope: 'root'; owner: SidebarBrandNameOwnerProps }
     /**
-     * The workspace/session browsing region: section header, search, the
+     * The workspace/session browsing region: section header, the
      * grouped/flat session list, and every workspace dialog. Declared by this
      * package's 'sidebar' entry (declaring is claiming); ui-workspace
      * registers the browser.
      */
     'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: SidebarSectionOwnerProps }
     /**
-     * The settings seat at the sidebar foot. Declared by this package's
-     * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
-     * The sidebar passes only its column state — it holds no settings state.
+     * Optional actions rendered in the icon control row, after the New Session
+     * control and the settings seat. Declared by this package's 'sidebar' entry;
+     * each action receives only the column state and renders wide content only —
+     * the rail hides the whole row.
+     */
+    'sidebar.header.action': { kind: 'list'; scope: 'root'; owner: SidebarHeaderActionOwnerProps }
+    /**
+     * The search region between the control row and the browsing region, wide
+     * only. Declared by this package's 'sidebar' entry; the registrant owns the
+     * search box it renders there.
+     */
+    'sidebar.header.search': { kind: 'single'; scope: 'root'; owner: SidebarHeaderSearchOwnerProps }
+    /**
+     * The settings seat. Declared by this package's 'sidebar' entry; ui-settings
+     * registers its trigger row + modal panel there. The shell renders the seat
+     * in the control row when wide and at the foot in the rail. The sidebar
+     * passes only its column state — it holds no settings state.
      */
     'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
     /**
-     * Optional actions beside Settings at the sidebar foot. Declared by this
-     * package's 'sidebar' entry; each action receives only the column state.
+     * Optional actions in the sidebar foot, above the rail's settings seat.
+     * Declared by this package's 'sidebar' entry; each action receives only
+     * the column state.
      */
     'sidebar.footer.action': { kind: 'list'; scope: 'root'; owner: SidebarFooterActionOwnerProps }
   }
@@ -79,7 +96,19 @@ export interface SidebarSettingsOwnerProps {
   wide: boolean
 }
 
-/** Owner share of an action rendered beside Settings at the sidebar foot. */
+/** Owner share of an action rendered in the icon control row. */
+export interface SidebarHeaderActionOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
+}
+
+/** Owner share of the search region under the icon control row. */
+export interface SidebarHeaderSearchOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail). */
+  wide: boolean
+}
+
+/** Owner share of an action rendered above the rail's settings seat. */
 export interface SidebarFooterActionOwnerProps {
   /** Whether the sidebar renders wide content (false = 56px rail). */
   wide: boolean
@@ -111,6 +140,8 @@ export type SidebarRootComponentProps =
   & PropsRenderSlots<
     | 'sidebar.brand.mark'
     | 'sidebar.brand.name'
+    | 'sidebar.header.action'
+    | 'sidebar.header.search'
     | 'sidebar.workspaces'
     | 'sidebar.settings'
     | 'sidebar.footer.action'

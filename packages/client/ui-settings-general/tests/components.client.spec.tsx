@@ -28,16 +28,24 @@ const unusedHook = (() => { throw new Error('unused by settings-general componen
 const kit = { useSessions: unusedHook, useWorkspaces: unusedHook }
 
 describe('chrome content', () => {
-  it('TriggerContent renders the icon with the label in the wide column', () => {
-    const { container } = render(<TriggerContent {...kit} wide t={t} />)
+  it('TriggerContent paints the settings glyph alone in the wide column', () => {
+    const { container } = render(
+      <button type="button"><TriggerContent {...kit} wide t={t} /></button>,
+    )
     expect(container.querySelector('svg')).toBeTruthy()
-    expect(screen.getByText('Settings')).toBeTruthy()
+    // Icon-only: the label names the host button instead of painting copy
+    // beside the glyph, and it is the trigger content's only text.
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
+    expect(container.textContent).toBe('Settings')
   })
 
-  it('TriggerContent drops the label in the rail state', () => {
-    const { container } = render(<TriggerContent {...kit} wide={false} t={t} />)
+  it('TriggerContent keeps the same icon-only trigger in the rail state', () => {
+    const { container } = render(
+      <button type="button"><TriggerContent {...kit} wide={false} t={t} /></button>,
+    )
     expect(container.querySelector('svg')).toBeTruthy()
-    expect(screen.queryByText('Settings')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
+    expect(container.textContent).toBe('Settings')
   })
 
   it('HeaderContent and CloseLabel render their translated text', () => {

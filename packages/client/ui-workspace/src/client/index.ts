@@ -1,11 +1,15 @@
 /**
- * Workspace plugin, browser half. Two registrations: WorkspaceBrowser fills
+ * Workspace plugin, browser half. Four registrations: WorkspaceBrowser fills
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
- * and WorkspacePicker fills the conversation hero's picker hole
- * (`conversation.hero.workspace` — both hero forms). Both read real Host
- * Workspaces through the global useWorkspaces hook, and each declares its
- * own `single` directory-flow child hole for the composed picker package's
- * client half (see the contract module doc). Export discipline:
+ * WorkspaceSearchToggle fills the shell's `sidebar.header.action` list beside the
+ * New Session and settings controls, WorkspaceSearchBox fills the shell's
+ * `sidebar.header.search` region under that row, and WorkspacePicker fills the
+ * conversation hero's picker hole (`conversation.hero.workspace` — both hero
+ * forms). The first three mount one store handle, so the region and both search
+ * entries share one viewing state. All read real Host Workspaces through the
+ * global useWorkspaces hook, and the browser and picker each declare their own
+ * `single` directory-flow child hole for the composed picker package's client
+ * half (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -15,13 +19,14 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
-import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
+import { WorkspaceBrowser, WorkspaceSearchBox, WorkspaceSearchToggle } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, type WorkspaceKey } from './locales.ts'
 
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
+  WorkspaceSearchBoxProps, WorkspaceSearchToggleProps,
 } from './contract/slots.ts'
 export type { WorkspaceKey } from './locales.ts'
 
@@ -108,17 +113,42 @@ export function apply(ctx: ClientContext): void {
     createWorkspace: input => ctx.workspaces.create(input),
     hooks: { directoryFlow: pickerFlowSource },
   })
+  // One store handle mounts under the browsing region and both search
+  // entries: the shell's trigger and the box below it read and write the same
+  // open flag and query.
+  const workspaceViewStore = createWorkspaceViewStore()
   // Each registration declares its directory-flow child in the same call;
   // slot injection follows both the owner and declaration HMR lifetimes.
   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
     {
       name: 'sidebar.workspaces',
       children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
-      store: createWorkspaceViewStore(),
+      store: workspaceViewStore,
       inject: browserInjected,
       locale: NS,
     },
     WorkspaceBrowser,
+  ))
+  // The search trigger joins the shell's header-action list, whose other
+  // occupant belongs to another package: this entry owns only its own button.
+  ctx.slots.inject('sidebar.header.action', () => ctx.slots.register(
+    {
+      name: 'sidebar.header.action',
+      id: 'workspace-search',
+      store: workspaceViewStore,
+      locale: NS,
+    },
+    WorkspaceSearchToggle,
+  ))
+  // The search box fills the shell's wide-only region under the control row
+  // where the trigger sits.
+  ctx.slots.inject('sidebar.header.search', () => ctx.slots.register(
+    {
+      name: 'sidebar.header.search',
+      store: workspaceViewStore,
+      locale: NS,
+    },
+    WorkspaceSearchBox,
   ))
   ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
     {

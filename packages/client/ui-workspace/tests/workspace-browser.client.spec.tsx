@@ -10,7 +10,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
-import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
+import { WorkspaceBrowser, WorkspaceSearchBox, WorkspaceSearchToggle } from '../src/client/WorkspaceBrowser.tsx'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -85,14 +85,40 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     t,
     ...overrides,
   }
-  const view = render(<WorkspaceBrowser {...props} />)
-  return { view, props, store }
+  // The shell's composition: this package's two search entries sit in the shell
+  // (the trigger in the icon control row, the box in the region under it) and the
+  // browsing region below them, all three mounted on the one store handle.
+  const shell = () => {
+    const seat = {
+      wide: props.wide,
+      useSessions: props.useSessions,
+      useWorkspaces: props.useWorkspaces,
+      useStore: props.useStore,
+      actions: props.actions,
+      t: props.t,
+    }
+    return (
+      <>
+        <WorkspaceSearchToggle {...seat} />
+        <WorkspaceSearchBox {...seat} />
+        <WorkspaceBrowser {...props} />
+      </>
+    )
+  }
+  const view = render(shell())
+  return { view, props, store, shell }
 }
 
 /** Re-render with (possibly) changed props — WorkspaceBrowser has no side channel. */
 function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrowserProps>) {
   Object.assign(b.props, overrides)
-  b.view.rerender(<WorkspaceBrowser {...b.props} />)
+  b.view.rerender(b.shell())
+}
+
+/** Open the shell's search box through its control-row trigger. */
+function openSearch(): HTMLInputElement {
+  fireEvent.click(screen.getByRole('button', { name: 'Open session search' }))
+  return screen.getByPlaceholderText<HTMLInputElement>('Search sessions...')
 }
 
 describe('WorkspaceBrowser', () => {
@@ -462,9 +488,10 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getAllByText('New Session')).toHaveLength(1)
     // Search excludes blank rows entirely — neither the canonical stored
     // title nor the localized display label participates in matching.
-    fireEvent.change(screen.getByPlaceholderText('Search sessions...'), { target: { value: 'new session' } })
+    const input = openSearch()
+    fireEvent.change(input, { target: { value: 'new session' } })
     expect(screen.queryByText('New Session')).toBeNull()
-    fireEvent.change(screen.getByPlaceholderText('Search sessions...'), { target: { value: 'New Session' } })
+    fireEvent.change(input, { target: { value: 'New Session' } })
     expect(screen.queryByText('New Session')).toBeNull()
   })
 
@@ -545,8 +572,7 @@ describe('WorkspaceBrowser', () => {
         useSessions: hook(sessions),
         useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
       })
-      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-      const input = screen.getByPlaceholderText<HTMLInputElement>('Search sessions...')
+      const input = openSearch()
       fireEvent.change(input, { target: { value: 'needle' } })
       const resultTree = screen.getByRole('tree', { name: 'Search results' })
       expect(screen.getByText('Needle row')).toBeTruthy()
@@ -558,36 +584,62 @@ describe('WorkspaceBrowser', () => {
       fireEvent.change(input, { target: { value: 'zzz' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       expect(screen.getByText('No matching sessions')).toBeTruthy()
-      fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
-      expect(input.value).toBe('')
-      expect(screen.getByRole('tree', { name: 'Sessions' })).toBeTruthy()
-      // Clicking the field row focuses the input (wide mode).
-      fireEvent.click(input.parentElement as HTMLElement)
-      expect(document.activeElement).toBe(input)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('collapses an empty search on outside click but keeps a non-empty query expanded', () => {
+  it('opens and closes the search box from the control-row trigger', () => {
     mount()
-    const search = screen.getByRole('button', { name: 'Search sessions' })
-    fireEvent.click(search)
-    expect(search.getAttribute('aria-expanded')).toBe('true')
-    fireEvent.click(document.body)
-    expect(search.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
+    const closed = screen.getByRole('button', { name: 'Open session search' })
+    expect(closed.getAttribute('aria-expanded')).toBe('false')
 
-    fireEvent.click(search)
+    fireEvent.click(closed)
+    // The trigger is a disclosure: its name and its expanded state follow the box.
+    const open = screen.getByRole('button', { name: 'Close session search' })
+    expect(open.getAttribute('aria-expanded')).toBe('true')
     const input = screen.getByPlaceholderText<HTMLInputElement>('Search sessions...')
-    fireEvent.change(input, { target: { value: '   ' } })
-    fireEvent.click(document.body)
-    expect(search.getAttribute('aria-expanded')).toBe('false')
+    // Opening focuses the field, so typing continues from the trigger gesture.
+    expect(document.activeElement).toBe(input)
 
-    fireEvent.click(search)
-    fireEvent.change(input, { target: { value: 'kept' } })
-    fireEvent.click(document.body)
-    expect(search.getAttribute('aria-expanded')).toBe('true')
-    expect(input.value).toBe('kept')
+    fireEvent.click(open)
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Open session search' }).getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('keeps one query across the shell trigger, the shell box, and the browser results', () => {
+    mount({
+      useSessions: hook(sessionState([
+        summary('needle-row', 2, { displayTitle: 'Needle row' }),
+        summary('other-row', 1, { displayTitle: 'Other row' }),
+      ])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
+    })
+    expect(screen.getByRole('tree', { name: 'Sessions' })).toBeTruthy()
+
+    fireEvent.change(openSearch(), { target: { value: 'needle' } })
+    // The box writes the query into the shared store, which is what the browsing
+    // region reads to swap its tree for the result list.
+    expect(screen.getByRole('tree', { name: 'Search results' })).toBeTruthy()
+    expect(screen.getByText('Needle row')).toBeTruthy()
+    expect(screen.queryByText('Other row')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close session search' }))
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
+    // The query outlives the box: reopening shows the same text and the same results.
+    const reopened = openSearch()
+    expect(reopened.value).toBe('needle')
+    expect(screen.getByRole('tree', { name: 'Search results' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    // Clear empties the query AND closes the box, so the unfiltered grouped tree
+    // comes back.
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
+    expect(screen.getByRole('tree', { name: 'Sessions' })).toBeTruthy()
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.getByText('Needle row')).toBeTruthy()
+    expect(screen.getByText('Other row')).toBeTruthy()
   })
 
   it('adds Host content hits with context, shows the result bound, and opens without clearing the query', async () => {
@@ -608,7 +660,7 @@ describe('WorkspaceBrowser', () => {
         open,
         searchSessions,
       })
-      const input = screen.getByPlaceholderText<HTMLInputElement>('Search sessions...')
+      const input = openSearch()
       fireEvent.change(input, { target: { value: 'waterfall token' } })
       expect(screen.getByText('Searching session history…')).toBeTruthy()
       expect(screen.queryByText('Research notes')).toBeNull()
@@ -633,7 +685,7 @@ describe('WorkspaceBrowser', () => {
     try {
       const searchSessions = vi.fn(async () => ({ items: [], hasMore: false }))
       mount({ searchSessions })
-      const input = screen.getByPlaceholderText<HTMLInputElement>('Search sessions...')
+      const input = openSearch()
       expect(input.maxLength).toBe(500)
       fireEvent.change(input, { target: { value: 'y'.repeat(501) } })
       expect(input.value).toBe('y'.repeat(500))
@@ -664,7 +716,7 @@ describe('WorkspaceBrowser', () => {
         useWorkspaces: hook(workspaceState([workspace('alpha', ['local-hit'])])),
         searchSessions,
       })
-      fireEvent.change(screen.getByPlaceholderText('Search sessions...'), {
+      fireEvent.change(openSearch(), {
         target: { value: 'needle' },
       })
       expect(screen.getByText('Needle title')).toBeTruthy()
@@ -701,7 +753,7 @@ describe('WorkspaceBrowser', () => {
         ])),
         searchSessions,
       })
-      const input = screen.getByPlaceholderText('Search sessions...')
+      const input = openSearch()
       fireEvent.change(input, { target: { value: 'first' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       const firstSignal = searchSessions.mock.calls[0]?.[1] as AbortSignal
@@ -735,7 +787,7 @@ describe('WorkspaceBrowser', () => {
         ? first
         : Promise.resolve({ items: [], hasMore: false }))
       mount({ searchSessions })
-      const input = screen.getByPlaceholderText('Search sessions...')
+      const input = openSearch()
       fireEvent.change(input, { target: { value: 'first' } })
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
 
@@ -758,7 +810,7 @@ describe('WorkspaceBrowser', () => {
       b.store.actions.setGroupBy('flat')
       rerender(b, {})
       expect(screen.getByText('No sessions yet')).toBeTruthy()
-      fireEvent.change(screen.getByPlaceholderText('Search sessions...'), { target: { value: 'x' } })
+      fireEvent.change(openSearch(), { target: { value: 'x' } })
       expect(screen.getByText('Searching session history…')).toBeTruthy()
       await act(async () => { await vi.advanceTimersByTimeAsync(250) })
       expect(screen.getByText('No matching sessions')).toBeTruthy()
@@ -768,48 +820,24 @@ describe('WorkspaceBrowser', () => {
   })
 
   it('rail state renders icon controls that request expansion', () => {
-    vi.useFakeTimers()
-    try {
-      const expandSidebar = vi.fn()
-      const b = mount({ wide: false, expandSidebar })
-      // No wide chrome in rail state.
-      expect(screen.queryByText('Workspaces')).toBeNull()
-      expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-      expect(expandSidebar).toHaveBeenCalledTimes(1)
-      // The wide flip mounts the input and focuses it after the slide.
-      rerender(b, { wide: true })
-      const input = screen.getByPlaceholderText('Search sessions...')
-      act(() => { vi.advanceTimersByTime(300) })
-      expect(document.activeElement).toBe(input)
-      // Wide search button is decorative (tabIndex -1, no expand call).
-      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-      expect(expandSidebar).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('keeps the rail-opened search expanded when the initiating click reaches document', () => {
-    vi.useFakeTimers()
-    try {
-      const b = mount({ wide: false })
-      fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-      rerender(b, { wide: true })
-      // In the browser the rail click keeps bubbling to document after the
-      // wide flip mounted the outside-click listener, with the unmounted rail
-      // button as its target — outside searchRoot. It must not dismiss the
-      // search it just opened.
-      fireEvent.click(document.body)
-      expect(screen.getByRole('button', { name: 'Search sessions' }).getAttribute('aria-expanded')).toBe('true')
-      act(() => { vi.advanceTimersByTime(300) })
-      expect(document.activeElement).toBe(screen.getByPlaceholderText('Search sessions...'))
-      // The gesture has settled: outside clicks dismiss the search again.
-      fireEvent.click(document.body)
-      expect(screen.getByRole('button', { name: 'Search sessions' }).getAttribute('aria-expanded')).toBe('false')
-    } finally {
-      vi.useRealTimers()
-    }
+    const expandSidebar = vi.fn()
+    const b = mount({ wide: false, expandSidebar })
+    // No wide chrome, and the shell's search seats are unmounted in the rail.
+    expect(screen.queryByText('Workspaces')).toBeNull()
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open session search' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+    expect(expandSidebar).toHaveBeenCalledOnce()
+    // The rail control opens the shared search state before the column expands, so
+    // the shell's box is already open once the wide flip mounts it.
+    expect(b.store.getSnapshot().searchExpanded).toBe(true)
+    rerender(b, { wide: true })
+    expect(screen.getByPlaceholderText('Search sessions...')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Close session search' })).toBeTruthy()
+    // The wide trigger is a real disclosure: it closes what the rail opened.
+    fireEvent.click(screen.getByRole('button', { name: 'Close session search' }))
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull()
+    expect(expandSidebar).toHaveBeenCalledOnce()
   })
 
   it('rail add-workspace raises the directory flow in place, with no menu and no expansion', () => {
@@ -1237,8 +1265,105 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(sessions),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-a'])])),
     })
-    fireEvent.change(screen.getByPlaceholderText('Search sessions...'), { target: { value: 'needle' } })
+    fireEvent.change(openSearch(), { target: { value: 'needle' } })
     const row = screen.getByText('Needle A').closest('[role="treeitem"]') as HTMLElement
     expect(row.hasAttribute('draggable')).toBe(false)
+  })
+
+  it('pins and unpins a session from its row menu into the trailing Pinned section', () => {
+    const sessions = sessionState([summary('alpha-s', 2), summary('beta-s', 1)])
+    const b = mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s', 'beta-s'])])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.queryByRole('region', { name: 'Pinned Sessions' })).toBeNull()
+    expect(screen.getAllByText('beta-s')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions for beta-s' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin session' }))
+
+    // The pin renders in its own section AND keeps its Workspace membership.
+    expect(b.store.getSnapshot().pinnedSessionIds).toEqual(['beta-s'])
+    expect(screen.getByRole('region', { name: 'Pinned Sessions' }).textContent).toContain('beta-s')
+    expect(screen.getAllByText('beta-s')).toHaveLength(2)
+
+    // A pinned row outlives its folded Workspace group.
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.getAllByText('beta-s')).toHaveLength(1)
+    expect(screen.getByRole('region', { name: 'Pinned Sessions' }).textContent).toContain('beta-s')
+
+    // The pinned row's own menu offers the inverse verb.
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions for beta-s' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpin session' }))
+    expect(b.store.getSnapshot().pinnedSessionIds).toEqual([])
+    expect(screen.queryByRole('region', { name: 'Pinned Sessions' })).toBeNull()
+  })
+
+  it('shows the Pinned section above the flat list too', () => {
+    const sessions = sessionState([summary('alpha-s', 2), summary('beta-s', 1)])
+    mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s', 'beta-s'])])),
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'In one list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions for beta-s' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin session' }))
+    expect(screen.getByRole('region', { name: 'Pinned Sessions' }).textContent).toContain('beta-s')
+    expect(screen.getAllByText('beta-s')).toHaveLength(2)
+  })
+
+  it('persists pins across a remount and drops an archived pin from the section', async () => {
+    const sessions = sessionState([summary('alpha-s', 2), summary('beta-s', 1)])
+    const workspaces = workspaceState([workspace('alpha', ['alpha-s', 'beta-s'])])
+    const b = mount({ useSessions: hook(sessions), useWorkspaces: hook(workspaces) })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions for alpha-s' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin session' }))
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('dsh.workspace.view.v7') ?? '{}') as {
+        pinnedSessionIds?: readonly string[]
+      }
+      expect(stored.pinnedSessionIds).toEqual(['alpha-s'])
+    })
+    b.view.unmount()
+
+    const restored = mount({ useSessions: hook(sessions), useWorkspaces: hook(workspaces) })
+    expect(restored.store.getSnapshot().pinnedSessionIds).toEqual(['alpha-s'])
+    expect(screen.getByRole('region', { name: 'Pinned Sessions' }).textContent).toContain('alpha-s')
+
+    // Archiving hides the row everywhere but keeps the stored pin id, so
+    // unarchiving restores the pin rather than silently dropping it.
+    rerender(restored, {
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s', 'beta-s'])], [sid('alpha-s')])),
+    })
+    expect(screen.queryByRole('region', { name: 'Pinned Sessions' })).toBeNull()
+    expect(restored.store.getSnapshot().pinnedSessionIds).toEqual(['alpha-s'])
+  })
+
+  it('persists the open search box and its query across a remount', async () => {
+    const overrides = {
+      useSessions: hook(sessionState([summary('needle-row', 1, { displayTitle: 'Needle row' })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row'])])),
+    }
+    const b = mount(overrides)
+    fireEvent.change(openSearch(), { target: { value: 'needle' } })
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('dsh.workspace.view.v7') ?? '{}') as {
+        searchExpanded?: boolean
+        query?: string
+      }
+      expect(stored.searchExpanded).toBe(true)
+      expect(stored.query).toBe('needle')
+    })
+    b.view.unmount()
+
+    // Both search facts ride the declared store, so a reload restores the box
+    // open on the same query and the browsing region renders the same results.
+    const restored = mount(overrides)
+    expect(restored.store.getSnapshot().searchExpanded).toBe(true)
+    expect(screen.getByPlaceholderText<HTMLInputElement>('Search sessions...').value).toBe('needle')
+    expect(screen.getByRole('tree', { name: 'Search results' })).toBeTruthy()
   })
 })

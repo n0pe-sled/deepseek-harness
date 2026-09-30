@@ -1,7 +1,12 @@
-/* Trigger row label (the shell's button provides layout/colors; the label
- * only guards against overflow during the sidebar collapse crossfade). */
+/* Trigger label: the shell seats this trigger in the icon control row, so the
+ * label is visually hidden and only supplies the button's accessible name (the
+ * rail icon carries no visible label in any width). */
 
-.triggerLabel {
+.hiddenLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
 }

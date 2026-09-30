@@ -1,6 +1,7 @@
 # Agent Note: Rail search keeps its expansion when the opening click reaches document
 
 Status: implemented
+Archived: 2026-09-30
 
 ## Problem
 

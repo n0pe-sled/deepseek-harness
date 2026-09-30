@@ -1,7 +1,8 @@
 /**
  * WorkspaceBrowser spacing contract, asserted against the CSS text on disk:
  * row fills share the shell's trailing inset, the stable scrollbar counts
- * inside it, and flat, grouped, and search views keep their intended rhythm.
+ * inside it, flat, grouped, and search views keep their intended rhythm, and the
+ * two search seats this package registers into the shell keep its row geometry.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -96,10 +97,10 @@ describe('WorkspaceBrowser.module.css list', () => {
     }
   })
 
-  it('keeps the compact fade, overflow control, search field, and row heights', () => {
+  it('keeps the compact fade, overflow control, and row heights', () => {
     expect(declarations('.fade')?.get('height')).toBe('24px')
     expect(declarations('.sessionOverflowButton')?.get('height')).toBe('28px')
-    expect(declarations('.searchExpanded')?.get('height')).toBe('30px')
+    expect(declarations('.searchBox')?.get('height')).toBe('30px')
     expect(rowDeclarations('.projectRow')?.get('height')).toBe('34px')
     expect(rowDeclarations('.sessionRow')?.get('height')).toBe('32px')
     expect(rowDeclarations('.flatSessionRowWithoutStatus .title')?.get('margin-left')).toBe('0')
@@ -111,6 +112,17 @@ describe('WorkspaceBrowser.module.css list', () => {
   it('pins both rail controls to the shared left anchor during the column slide', () => {
     expect(declarations('.rail .sectionHeader')?.get('justify-content')).toBe('flex-start')
     expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
-    expect(declarations('.rail .search')?.get('width')).toBe('36px')
+    expect(declarations('.railSearchButton')?.get('width')).toBe('36px')
+  })
+
+  it('sizes the shell seats as the control-row capsule and the full-width box', () => {
+    // The trigger matches the New Session and settings capsules beside it in the
+    // shell's control row; the box spans the region and its input takes the slack.
+    expect(declarations('.searchToggle')?.get('width')).toBe('36px')
+    expect(declarations('.searchToggle')?.get('height')).toBe('36px')
+    expect(declarations('.searchToggle')?.get('border-radius')).toBe('12px')
+    expect(declarations('.searchBox')?.get('width')).toBe('100%')
+    expect(declarations('.searchInput')?.get('flex')).toBe('1')
+    expect(declarations('.clearButton')?.get('width')).toBe('24px')
   })
 })

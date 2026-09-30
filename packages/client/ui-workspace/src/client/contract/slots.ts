@@ -1,14 +1,20 @@
 /**
- * ui-workspace contracts. Two registrations share this package:
+ * ui-workspace contracts. Four registrations share this package:
  *
  * - WorkspaceBrowser fills the sidebar shell's `sidebar.workspaces` hole —
- *   the whole browsing region (section header, search, grouped/flat session
- *   list, workspace dialogs). It registers this package's viewing store and
- *   consumes the shell's two-fact owner share (wide / expandSidebar).
+ *   the whole browsing region (section header, grouped/flat session list,
+ *   search results, workspace dialogs). It registers this package's viewing
+ *   store and consumes the shell's two-fact owner share (wide / expandSidebar).
+ *   The same store handle also mounts under the two search contributions this
+ *   package registers into the shell: the trigger in `sidebar.header.action`
+ *   beside the New Session and settings controls, and the box in
+ *   `sidebar.header.search` directly under that row, so one query and one open
+ *   flag cross all three entries.
  * - WorkspacePicker fills the conversation empty-state hole (menu + error
  *   dialog shared with the browser).
  *
- * Each registration also declares one **directory-flow hole** (`single`
+ * The browser and picker registrations each also declare one **directory-flow
+ * hole** (`single`
  * kind): the slot a composed picker package's client half fills with its
  * picking interaction — a renderless native-chooser driver or an in-app
  * browsing dialog. ui-workspace owns the trigger (the "Add workspace…"
@@ -146,6 +152,24 @@ export type WorkspaceBrowserProps =
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & PropsHooks<WorkspaceBrowserInjected['hooks']>
+  & PropsLocale<'workspace'>
+
+/**
+ * Search-trigger props: the shell's header-action owner share (wide only), the
+ * viewing store shared with the browser and the box, and the locale seat.
+ */
+export type WorkspaceSearchToggleProps =
+  PropsRuntime<'sidebar.header.action'>
+  & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
+  & PropsLocale<'workspace'>
+
+/**
+ * Search-box props: the shell's search-region owner share (wide only), the
+ * viewing store shared with the browser and the trigger, and the locale seat.
+ */
+export type WorkspaceSearchBoxProps =
+  PropsRuntime<'sidebar.header.search'>
+  & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & PropsLocale<'workspace'>
 
 /**

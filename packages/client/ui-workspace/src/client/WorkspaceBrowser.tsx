@@ -1,13 +1,17 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
  * `sidebar.workspaces` hole: section header (title + view options + add
- * workspace), search, the grouped tree or flat list, and the workspace
- * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / add workspace) as 36px controls on the shell's shared
- * rail entry path, each requesting expansion through the owner share. Adding
- * is the header button's one action, so it raises the directory flow with no
- * menu in between; the flow and its error dialog live in WorkspacePicker
- * (same package — direct composition, no slot between them).
+ * workspace), the grouped tree or flat list, the search results, and the
+ * workspace dialogs. The search controls themselves are two further
+ * registrations of this package, so they sit in the shell's control row and in
+ * the search region under it; both ride this browser's viewing store, which is
+ * what keeps one open flag and one query across the region's remounts. Wide state
+ * renders the full browser; rail state renders the two region icons (search / add
+ * workspace) as 36px controls on the shell's shared rail entry path, each
+ * requesting expansion through the owner share. Adding is the header button's one
+ * action, so it raises the directory flow with no menu in between; the flow and
+ * its error dialog live in WorkspacePicker (same package, direct composition,
+ * no slot between them).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -18,19 +22,16 @@ import {
 import type {
   SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspaceBrowserProps } from './contract/slots.ts'
+import type {
+  WorkspaceBrowserProps, WorkspaceSearchBoxProps, WorkspaceSearchToggleProps,
+} from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
-import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
+import { deriveFlat, deriveGroups, derivePinned, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
-/**
- * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
- * focus() forces a synchronous layout and would jank the slide.
- */
-const EXPAND_SLIDE_MS = 300
 /** Pause between the latest keystroke and a Host content-search request. */
 const SEARCH_DEBOUNCE_MS = 250
 /** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
@@ -213,6 +214,46 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+/**
+ * The sidebar's leading Pinned section: pin-ordered session rows above every
+ * workspace group (and above the flat list). Invisible with no pins; the
+ * rows carry no drag wiring — pin order is the pin action's own order.
+ */
+function PinnedSection({ nodes, pinnedIdSet, currentId, now, onOpen, onSessionRename, onSessionArchive, forkSession, onPinToggle, t }: {
+  nodes: readonly SessionNode[]
+  pinnedIdSet: ReadonlySet<string>
+  currentId: string | undefined
+  now: number
+  onOpen: (id: SessionNode['id']) => void
+  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
+  onSessionArchive: (sessionId: SessionNode['id']) => void
+  forkSession: (sessionId: SessionNode['id']) => void
+  onPinToggle: (sessionId: SessionNode['id']) => void
+  t: WorkspaceBrowserProps['t']
+}) {
+  if (nodes.length === 0) return null
+  return (
+    <section className={css.pinnedSection} aria-label={t('section.pinned')}>
+      <div className={css.pinnedLabel}>{t('section.pinned')}</div>
+      {nodes.map(node => (
+        <SessionNodeItem
+          key={`pinned-${node.id}`}
+          node={node}
+          currentId={currentId}
+          now={now}
+          onOpen={onOpen}
+          onRename={onSessionRename}
+          onFork={forkSession}
+          onArchive={onSessionArchive}
+          onPinToggle={onPinToggle}
+          pinned={pinnedIdSet.has(node.id)}
+          t={t}
+        />
+      ))}
+    </section>
+  )
+}
+
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessions' | 'startSession' | 'open' | 'forkSession'
@@ -245,6 +286,12 @@ type SessionTreeProps = Pick<
   onSessionArchive: (sessionId: SessionNode['id']) => void
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
+  /** Pinned section rows in pin order (derivePinned output). */
+  pinnedNodes: readonly SessionNode[]
+  /** The stored pin ids, for the rows' menu label selection. */
+  pinnedIdSet: ReadonlySet<string>
+  /** Toggle one session's sidebar pin. */
+  onPinToggle: (sessionId: SessionNode['id']) => void
 }
 
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
@@ -254,6 +301,7 @@ function SessionTree({
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
+  pinnedNodes, pinnedIdSet, onPinToggle,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -390,6 +438,18 @@ function SessionTree({
         role="tree"
         aria-label={t('section.sessions')}
       >
+        <PinnedSection
+          nodes={pinnedNodes}
+          pinnedIdSet={pinnedIdSet}
+          currentId={current}
+          now={now}
+          onOpen={open}
+          onSessionRename={onSessionRename}
+          onSessionArchive={onSessionArchive}
+          forkSession={forkSession}
+          onPinToggle={onPinToggle}
+          t={t}
+        />
         {groups.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
@@ -519,6 +579,8 @@ function SessionTree({
                     onRename={onSessionRename}
                     onFork={forkSession}
                     onArchive={onSessionArchive}
+                    onPinToggle={onPinToggle}
+                    pinned={pinnedIdSet.has(node.id)}
                     drag={dragProps}
                     t={t}
                   />
@@ -549,6 +611,7 @@ function SessionTree({
 function FlatList({
   useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
+  pinnedNodes, pinnedIdSet, onPinToggle,
 }: Pick<
   SessionTreeProps,
   | 'useSessions'
@@ -563,6 +626,9 @@ function FlatList({
   | 'syncSessionOrderAccount'
   | 'setSessionOrder'
   | 't'
+  | 'pinnedNodes'
+  | 'pinnedIdSet'
+  | 'onPinToggle'
 >) {
   const list = useSessions(s => s)
   const baseRows = useMemo(
@@ -620,6 +686,18 @@ function FlatList({
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
+        <PinnedSection
+          nodes={pinnedNodes}
+          pinnedIdSet={pinnedIdSet}
+          currentId={list.current}
+          now={now}
+          onOpen={open}
+          onSessionRename={onSessionRename}
+          onSessionArchive={onSessionArchive}
+          forkSession={forkSession}
+          onPinToggle={onPinToggle}
+          t={t}
+        />
         {rows.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
@@ -635,6 +713,8 @@ function FlatList({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              onPinToggle={onPinToggle}
+              pinned={pinnedIdSet.has(node.id)}
               flat
               drag={{
                 start: () => {
@@ -737,6 +817,79 @@ function SearchResults({
 }
 
 /**
+ * Session-search trigger: the wide-side occupant of the shell's
+ * `sidebar.header.action` list slot, beside the New Session and settings
+ * controls. It opens and closes the box; the box is this package's
+ * `sidebar.header.search` occupant under the same row. Both entries mount the
+ * browser's viewing store, so the button's expanded state and the box's input are
+ * one shared fact.
+ * @param props - composed slot props (shell owner share + viewing store + locale seat).
+ * @returns the trigger button, or nothing on the collapsed rail.
+ */
+export function WorkspaceSearchToggle({ wide, useStore, actions, t }: WorkspaceSearchToggleProps) {
+  const searchExpanded = useStore(s => s.searchExpanded)
+  if (!wide) return null
+  const label = searchExpanded ? t('search.close') : t('search.open')
+  return (
+    <Tooltip label={label} side="bottom" delayMs={500}>
+      <button
+        type="button"
+        className={css.searchToggle}
+        aria-label={label}
+        aria-expanded={searchExpanded}
+        onClick={() => { actions.setSearchExpanded(!searchExpanded) }}
+      >
+        <IconSearchOutline16 />
+      </button>
+    </Tooltip>
+  )
+}
+
+/**
+ * Session-search box under the shell's icon control row: the full-width input and
+ * its clear control. It renders only while the shared store has search open, and
+ * takes focus on open so typing continues from the trigger gesture.
+ * @param props - composed slot props (shell owner share + viewing store + locale seat).
+ * @returns the search box, or nothing while closed or on the collapsed rail.
+ */
+export function WorkspaceSearchBox({ wide, useStore, actions, t }: WorkspaceSearchBoxProps) {
+  const searchExpanded = useStore(s => s.searchExpanded)
+  const query = useStore(s => s.query)
+  const input = useRef<HTMLInputElement | null>(null)
+  // focus() forces a synchronous layout, so it waits for the box's own mount
+  // rather than running while the input is still absent.
+  useEffect(() => {
+    if (!searchExpanded) return
+    input.current?.focus({ preventScroll: true })
+  }, [searchExpanded])
+  if (!wide || !searchExpanded) return null
+  return (
+    <div className={css.searchBox}>
+      <input
+        ref={input}
+        className={css.searchInput}
+        type="text"
+        placeholder={t('search.placeholder')}
+        maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
+        value={query}
+        onChange={(e) => { actions.setSearchQuery(sanitizeSearchQuery(e.target.value)) }}
+      />
+      <button
+        type="button"
+        className={css.clearButton}
+        aria-label={t('search.clear')}
+        onClick={() => {
+          actions.setSearchQuery('')
+          actions.setSearchExpanded(false)
+        }}
+      >
+        <IconCloseFill14 />
+      </button>
+    </div>
+  )
+}
+
+/**
  * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
@@ -777,6 +930,17 @@ export function WorkspaceBrowser({
   const groupExpansion = useStore(s => s.groupExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   const sessionUpdatedAtByAccount = useStore(s => s.sessionUpdatedAtByAccount)
+  const pinnedSessionIds = useStore(s => s.pinnedSessionIds)
+  const sessionList = useSessions(s => s)
+  const pinnedNodes = useMemo(
+    () => derivePinned(sessionList, archivedSessionIds, pinnedSessionIds),
+    [sessionList, archivedSessionIds, pinnedSessionIds],
+  )
+  const pinnedIdSet = useMemo(() => new Set(pinnedSessionIds), [pinnedSessionIds])
+  const onPinToggle = (sessionId: SessionNode['id']): void => {
+    if (pinnedIdSet.has(sessionId)) actions.unpinSession(sessionId)
+    else actions.pinSession(sessionId)
+  }
   const currentBlankSessionId = useSessions((state) => {
     const current = state.current
     return current !== undefined && state.byId[current]?.blank === true ? current : undefined
@@ -810,10 +974,10 @@ export function WorkspaceBrowser({
       ...workspaces.map(workspace => workspace.workspaceId as string),
     ])
   }, [actions.retainAccountKeys, workspacePhase, workspaces])
-  // The query outlives the tree and the input (both wide-only) so collapsing
-  // does not silently drop an in-progress filter.
-  const [query, setQuery] = useState('')
-  const [searchExpanded, setSearchExpanded] = useState(false)
+  // The store owns the open flag and the query: the shell's trigger and the
+  // shell's box are separate entries of this package, and the query outlives the
+  // tree so a fold does not silently drop an in-progress filter.
+  const query = useStore(s => s.query)
   const normalizedQuery = sanitizeSearchQuery(query).trim()
   const [remoteSearch, setRemoteSearch] = useState<RemoteSearchState>({
     query: '',
@@ -821,48 +985,11 @@ export function WorkspaceBrowser({
     items: [],
     hasMore: false,
   })
-  const searchRoot = useRef<HTMLDivElement | null>(null)
-  const searchInput = useRef<HTMLInputElement | null>(null)
   // Section-header ＋ opens the picker menu (same popover in wide and rail
   // states; the menu anchors on this button).
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
-
-  // Rail search = expand + land in the search box: the flag arms before the
-  // expand request; once the shell flips wide the input mounts and takes focus.
-  const [searchOnExpand, setSearchOnExpand] = useState(false)
-  useEffect(() => {
-    if (wide && searchOnExpand) {
-      const timer = window.setTimeout(() => {
-        searchInput.current?.focus({ preventScroll: true })
-        setSearchOnExpand(false)
-      }, EXPAND_SLIDE_MS)
-      return () => { window.clearTimeout(timer) }
-    }
-  }, [wide, searchOnExpand])
-
-  useEffect(() => {
-    if (!wide || !searchExpanded || searchOnExpand) return
-    searchInput.current?.focus({ preventScroll: true })
-  }, [wide, searchExpanded, searchOnExpand])
-
-  // Outside-click dismissal stays off while the rail gesture is in flight
-  // (searchOnExpand): the rail click flips the shell wide and mounts this
-  // listener during its own dispatch, then keeps bubbling to document with
-  // the now-unmounted rail button as its target — outside searchRoot, so the
-  // listener would dismiss the search that click just opened.
-  useEffect(() => {
-    if (!wide || !searchExpanded || searchOnExpand) return
-    const onClick = (event: MouseEvent): void => {
-      if (!(event.target instanceof Node) || searchRoot.current?.contains(event.target) === true) return
-      searchInput.current?.blur()
-      if (normalizedQuery !== '') return
-      setSearchExpanded(false)
-    }
-    document.addEventListener('click', onClick)
-    return () => { document.removeEventListener('click', onClick) }
-  }, [normalizedQuery, wide, searchExpanded, searchOnExpand])
 
   useEffect(() => {
     if (normalizedQuery === '') {
@@ -1011,68 +1138,11 @@ export function WorkspaceBrowser({
     <div className={clsx(css.root, !wide && css.rail)}>
       <div className={css.sectionHeader}>
         {wide && (
-          <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
+          <span className={clsx(css.sectionLabel, css.wide)}>
             {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
-        {wide && (
-          <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
-            <div
-              ref={searchRoot}
-              className={clsx(css.search, searchExpanded && css.searchExpanded)}
-              onClick={() => {
-                setWsPickerOpen(false)
-                setSearchExpanded(true)
-                searchInput.current?.focus()
-              }}
-            >
-              <Tooltip label={t('search')} side="bottom" delayMs={500} disabled={searchExpanded}>
-                <button
-                  type="button"
-                  className={css.searchButton}
-                  aria-label={t('search.sessions.aria')}
-                  aria-expanded={searchExpanded}
-                  onClick={() => {
-                    setWsPickerOpen(false)
-                    setSearchExpanded(true)
-                  }}
-                >
-                  <IconSearchOutline16 size={searchExpanded ? 11 : 14} />
-                </button>
-              </Tooltip>
-              <input
-                ref={searchInput}
-                className={css.searchInput}
-                type="text"
-                placeholder={t('search.placeholder')}
-                maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
-                value={query}
-                tabIndex={searchExpanded ? 0 : -1}
-                onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Escape') return
-                  setQuery('')
-                  setSearchExpanded(false)
-                }}
-              />
-              {searchExpanded && (
-                <button
-                  type="button"
-                  className={css.clearButton}
-                  aria-label={t('search.clear')}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setQuery('')
-                    setSearchExpanded(false)
-                  }}
-                >
-                  <IconCloseFill14 />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
+        <div className={css.headerActions}>
           {wide && (
             <ViewOptionsMenu
               groupBy={groupBy}
@@ -1120,16 +1190,16 @@ export function WorkspaceBrowser({
         />
       </div>
 
-      {/* The collapsed rail keeps search as its own 36px control. */}
-      {!wide && <div className={css.search}>
-        <Tooltip label={t('search')}>
+      {/* The collapsed rail keeps search as its own 36px control; it opens the
+          box the shell renders once the expansion request has flipped it wide. */}
+      {!wide && <div className={css.railSearch}>
+        <Tooltip label={t('search.open')}>
           <button
             type="button"
-            className={css.searchButton}
+            className={css.railSearchButton}
             aria-label={t('search.sessions.aria')}
             onClick={() => {
-              setSearchExpanded(true)
-              setSearchOnExpand(true)
+              actions.setSearchExpanded(true)
               expandSidebar()
             }}
           >
@@ -1165,6 +1235,9 @@ export function WorkspaceBrowser({
                 sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
                 syncSessionOrderAccount={actions.syncSessionOrderAccount}
                 setSessionOrder={actions.setSessionOrder}
+                pinnedNodes={pinnedNodes}
+                pinnedIdSet={pinnedIdSet}
+                onPinToggle={onPinToggle}
                 t={t}
               />
             )
@@ -1188,6 +1261,9 @@ export function WorkspaceBrowser({
                 insertSessionBefore={insertSessionBefore}
                 orderBy={orderBy}
                 home={home}
+                pinnedNodes={pinnedNodes}
+                pinnedIdSet={pinnedIdSet}
+                onPinToggle={onPinToggle}
                 t={t}
                 onRenameRequest={(workspaceId, currentTitle) => {
                   setRenameTarget({ workspaceId, currentTitle })

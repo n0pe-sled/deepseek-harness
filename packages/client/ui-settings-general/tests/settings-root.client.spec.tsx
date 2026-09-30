@@ -94,6 +94,9 @@ describe('SettingsRoot trigger', () => {
   it('hands the rail state to the trigger seat', () => {
     const { renderSlot } = mount({ wide: false })
     expect(renderSlot).toHaveBeenCalledWith('settings.trigger', { wide: false })
+    // Rail and wide triggers carry the same accessible name: the icon control
+    // stays the only thing the trigger paints in either column width.
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
   })
 })
 

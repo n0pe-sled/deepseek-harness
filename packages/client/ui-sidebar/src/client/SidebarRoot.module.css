@@ -60,9 +60,9 @@
 
 /* At the 150ms rail settle, the four upper controls enter from the former
    rail right edge over the remaining 150ms of the AppFrame track transition.
-   The bottom-pinned settings seat shares their opacity timeline but stays
-   horizontally fixed. Only a live collapse gets .railIn; a cold collapsed
-   render stays static. */
+   The rail's settings seat shares their opacity timeline but stays horizontally
+   fixed, because it keeps the foot position the wide column gives that seat. Only a
+   live collapse gets .railIn; a cold collapsed render stays static. */
 .railIn .iconButton,
 .railIn .newSession,
 .railIn .regionArea {
@@ -84,14 +84,13 @@
   from { opacity: 0; }
 }
 
-/* Logo row (figma pad (4,8,4,8)): expanded keeps the panel toggle at the
-   right edge; the rail gives every control the same base left anchor before
-   the shared entry translation is applied. */
+/* Logo row (figma pad (4,8,4,8)): mark at the left edge, brand name centered
+   in the space between mark and panel toggle; the rail gives every control
+   the same base left anchor before the shared entry translation is applied. */
 .logoRow {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
   height: 60px;
   padding: 8px 0 8px 4px;
@@ -107,33 +106,9 @@
   justify-content: flex-start;
 }
 
-/* Brand group (figma I133:7632): the full wordmark rides the text ink
-   (figma flows: the main-screen instance is black; blue is brand
-   emphasis only). A button only in behavior (New Session shortcut): the
-   pointer cursor is the sole affordance — no hover chrome on the mark. */
-.brand {
-  flex: 1;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  overflow: hidden;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
 /* Mark and name are independent slots; the shell owns their shared baseline,
-   spacing, and height so either occupant can vary in width. */
-.brandIdentity {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 24px;
-  min-width: 0;
-}
-
+   spacing, and height so either occupant can vary in width. The name centers
+   itself in the space between the mark and the toggle. */
 .brandMark {
   flex: none;
   display: inline-flex;
@@ -142,10 +117,12 @@
 }
 
 .brandName {
+  flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  min-width: 0;
   height: 24px;
   font-size: 18px;
   font-weight: 600;
@@ -210,70 +187,62 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.buildRevision {
-  display: inline-flex;
+/* Icon control row: New Session, the settings seat, then optional header actions
+   (e.g. clear-all), wide and rail. New Session keeps its bordered capsule
+   geometry as a 36px square icon control; the settings seat and the header
+   actions render beside it, wide only. */
+.controlRow {
+  flex: none;
+  display: flex;
   align-items: center;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 3px;
-  color: var(--dsw-alias-label-primary-inverted);
-  background: var(--dsw-alias-label-primary);
-  font-family: var(--ds-font-family-code);
-  font-size: 8px;
-  font-weight: 500;
-  line-height: 16px;
+  justify-content: center;
+  gap: 2px;
+  margin: 0 2px 8px;
 }
 
-/* New Session: 38px bar, 12px radius (figma 133:7634 geometry, squared-off
-   corners); collapsed it renders as the rail's plain icon control. */
+/* In-row settings seat: the occupant owns its own control box (a 42px trigger
+   row wide), so the seat only places it beside New Session. */
+.settingsSeat {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Search region: the occupant owns the search box; the seat spans the column's
+   whole content width directly under the control row. */
+.headerSearch {
+  flex: none;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+
 .newSession {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 38px;
-  padding: 8px 16px;
-  margin: 0 2px 8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: none;
   border-radius: 12px;
-  background: var(--dsw-alias-button-elevated-fill);
+  background: transparent;
   color: var(--dsw-alias-label-primary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 22px;
   cursor: pointer;
   overflow: hidden;
 }
 
 .newSession:hover {
-  background: var(--dsw-alias-button-floating-hover);
-}
-
-.collapsed .newSession {
-  align-self: flex-start;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin: 0 0 12px;
-  gap: 0;
-  border-color: transparent;
-  background: transparent;
-}
-
-.collapsed .newSession:hover {
   background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.newSessionLabel {
-  max-width: 200px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.collapsed .newSessionLabel {
-  max-width: 0;
 }
 
 /* Region seat: always mounted so the foot never moves. Its trailing margin
@@ -296,8 +265,8 @@
   padding-left: 0;
 }
 
-/* Footer seats: additive actions stack above Settings. Each occupant owns its
-   button geometry and hover chrome. */
+/* Footer seats: additive actions, above the rail's settings seat. Each occupant
+   owns its button geometry and hover chrome. */
 .footArea {
   flex: none;
   display: flex;

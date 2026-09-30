@@ -8,7 +8,8 @@ import { en, type SidebarKey } from './locales.ts'
 
 export type {
   SidebarBrandMarkOwnerProps, SidebarBrandNameOwnerProps, SidebarFooterActionOwnerProps,
-  SidebarRootComponentProps, SidebarRootInjected, SidebarSectionOwnerProps, SidebarSettingsOwnerProps,
+  SidebarHeaderActionOwnerProps, SidebarHeaderSearchOwnerProps, SidebarRootComponentProps,
+  SidebarRootInjected, SidebarSectionOwnerProps, SidebarSettingsOwnerProps,
 } from './contract/slots.ts'
 export type { SidebarKey } from './locales.ts'
 
@@ -41,12 +42,14 @@ export function apply(ctx: ClientContext): void {
     () => ctx.slots.register({
       name: 'sidebar',
       locale: NS,
-      // The shell owns geometry; ui-workspace registers the whole browsing
-      // region (header, search, session list, workspace dialogs), ui-settings
-      // registers the foot trigger + settings panel.
+      // The shell owns geometry and the control row; ui-workspace registers the
+      // browsing region (header, session list, workspace dialogs) and the search
+      // box under the controls, ui-settings registers the settings seat.
       children: {
         'sidebar.brand.mark': { kind: 'single', scope: 'root' },
         'sidebar.brand.name': { kind: 'single', scope: 'root' },
+        'sidebar.header.action': { kind: 'list', scope: 'root' },
+        'sidebar.header.search': { kind: 'single', scope: 'root' },
         'sidebar.workspaces': { kind: 'single', scope: 'root' },
         'sidebar.settings': { kind: 'single', scope: 'root' },
         'sidebar.footer.action': { kind: 'list', scope: 'root' },
