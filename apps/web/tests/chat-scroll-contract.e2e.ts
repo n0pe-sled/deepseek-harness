@@ -263,10 +263,24 @@ async function loadedFlowRows(page: Page): Promise<number> {
 }
 
 async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: string): Promise<void> {
-  // Search collapsed into a header action; expand it before filling.
-  const searchButton = page.getByRole('button', { name: 'Search sessions' })
-  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
+  // openSeed may run with the box already open from an earlier call: wait for
+  // whichever entry the current chrome mounts after the collapse crossfade
+  // settles — the collapsed rail's control (one gesture expands the sidebar
+  // and opens the box), the control-row toggle's open or close face in a
+  // wider world.
+  const railSearch = page.getByRole('button', { name: 'Search sessions' })
+  const openToggle = page.getByRole('button', { name: 'Open session search' })
+  const closeToggle = page.getByRole('button', { name: 'Close session search' })
+  await expect.poll(
+    async () =>
+      (await railSearch.count()) + (await openToggle.count()) + (await closeToggle.count()),
+    { timeout: 15_000 },
+  ).toBeGreaterThanOrEqual(1)
+  if (await railSearch.count() === 1) await railSearch.click()
+  else if (await openToggle.count() === 1) {
+    if (await openToggle.getAttribute('aria-expanded') !== 'true') await openToggle.click()
+  }
+  const search = page.getByPlaceholder('Search sessions...')
   // Cold summaries initially show the temporary workspace basename, so the
   // persisted first-prompt marker is the stable user-facing identity. The
   // query itself triggers lazy content-index reconciliation; no transient

@@ -1,0 +1,7 @@
+- dialog "Delete minimax-cn?":
+  - heading "Delete minimax-cn?" [level=2]
+  - button "Close":
+    - img
+  - paragraph: Deleting minimax-cn removes its configuration and stored API key.
+  - button "Cancel"
+  - button "Delete minimax-cn"

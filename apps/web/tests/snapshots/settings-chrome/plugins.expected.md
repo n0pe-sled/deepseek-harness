@@ -1,0 +1,6 @@
+- listitem:
+  - button "ui-settings, Mounted, Enabled":
+    - strong: ui-settings
+    - img "Mounted"
+    - text: Enabled
+    - img

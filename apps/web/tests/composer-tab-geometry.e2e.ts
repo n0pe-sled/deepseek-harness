@@ -251,10 +251,10 @@ async function compareTabsWithoutCompensation(page: Page): Promise<TabComparison
  * @param page - the page under test.
  */
 async function openSeededSession(page: Page): Promise<void> {
-  // Search collapsed into a header action; expand it before filling.
-  const searchButton = page.getByRole('button', { name: 'Search sessions' })
-  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
+  // Search opens from the control row's toggle; open the box before filling.
+  const searchToggle = page.getByRole('button', { name: 'Open session search' })
+  if (await searchToggle.getAttribute('aria-expanded') !== 'true') await searchToggle.click()
+  const search = page.getByPlaceholder('Search sessions...')
   await search.fill(FIXTURE.markers.user(1))
   const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   const deadline = Date.now() + 60_000

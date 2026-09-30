@@ -25,7 +25,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { expect } from 'vitest'
@@ -954,6 +954,10 @@ export async function captureStableAria(page: Page, selector: string, workspaceC
 export async function compareOrRefreshGolden(goldenPath: string, actual: string, mode: WebSnapshotMode): Promise<void> {
   const payload = `${actual}\n`
   if (mode === 'refresh') {
+    // The lane's golden directories are committed except when a scenario is
+    // new or its dir was never generated; writeFile alone would fail with an
+    // ENOENT on the missing parent, so the refresh writer owns the mkdir.
+    await mkdir(dirname(goldenPath), { recursive: true })
     await writeFile(goldenPath, payload)
     return
   }

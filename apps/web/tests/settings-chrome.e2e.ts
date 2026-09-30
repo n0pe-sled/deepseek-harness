@@ -112,7 +112,7 @@ describe('web e2e: settings modal and General preferences', () => {
       .toBe(String(expectedPluginCount))
     expect(await dialog.getByRole('button', { name: 'Plugins', exact: true }).getAttribute('aria-current')).toBe('true')
     expect(await dialog.getByRole('tab', { name: 'Plugin list', exact: true }).getAttribute('aria-selected')).toBe('true')
-    expect(await dialog.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBeNull()
+    expect(await dialog.getByRole('button', { name: 'Models', exact: true }).getAttribute('aria-current')).toBeNull()
     const pluginsSnapshot = await captureStableAria(
       page,
       PLUGIN_ROW_SELECTOR,
@@ -435,6 +435,12 @@ describe('web e2e: settings modal and General preferences', () => {
       const dialog = frPage.getByRole('dialog', { name: 'Settings' })
       await dialog.waitFor({ timeout: 10_000 })
       await dialog.getByRole('button', { name: 'English' }).waitFor({ timeout: 10_000 })
+      // The language cube mounts before the settings join settles; the
+      // preset selector's enabled state is the join outcome, so the capture
+      // waits for the same readiness barrier the English shared section
+      // uses — otherwise a loaded machine records a transiently disabled
+      // selector into the golden.
+      await dialog.getByRole('button', { name: 'Workspace Write' }).waitFor({ timeout: 10_000 })
       // The markup already ships `en`, so this alone cannot prove the sync ran;
       // asserted too so a future change that resolves en but writes the wrong
       // tag is caught.

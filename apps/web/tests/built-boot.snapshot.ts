@@ -42,8 +42,8 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
 
   // The sidebar renders from the boot graph: every inject layer activated.
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
-  expect(document.querySelector('svg[viewBox="26 0 156 24"]')).not.toBeNull()
-  expect(screen.queryByText('DSH Local Build')).toBeNull()
+  expect(document.querySelector('svg[viewBox="0 0 23.16 17.04"]')).not.toBeNull()
+  expect(screen.queryByText('n0pe-sled AI')).not.toBeNull()
   // The compact layout dropped group session counts; the fixture workspace
   // group row renders immediately with its sessions beneath it.
   const fixtureGroup = (await within(tree).findAllByText('fixture'))
@@ -54,7 +54,7 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   // The resident fixture has both a question and an approval; composer routing
   // exposes the question first, and the assembled workspace plugin mirrors that
   // actionable wait instead of the underlying running state.
-  const waitingTitle = await within(tree).findByText('Fixture 历史会话')
+  const waitingTitle = await within(tree).findByText('Fixture history session')
   const waitingRow = waitingTitle.closest<HTMLElement>('[role="treeitem"]')
   if (waitingRow === null) throw new Error('fixture Session title must belong to a tree row')
   expect(waitingRow.querySelector('[data-state="warning"]')).not.toBeNull()

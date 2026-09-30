@@ -58,10 +58,19 @@ async function ensureSeedOpen(page: Page): Promise<void> {
     await welcome.waitFor({ state: 'detached', timeout: 15_000 })
   }
   const chat = page.getByRole('tab', { name: 'Chat', exact: true })
-  // Search is a collapsed header action; expand it so the input is actionable.
-  const searchButton = page.getByRole('button', { name: 'Search sessions' })
-  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByPlaceholder('Search sessions', { exact: false })
+  // Search opens from the control row's toggle; open the box when closed,
+  // and tolerate a box a previous call left open (its toggle already reads
+  // the close face).
+  const openToggle = page.getByRole('button', { name: 'Open session search' })
+  const closeToggle = page.getByRole('button', { name: 'Close session search' })
+  await expect.poll(
+    async () => (await openToggle.count()) + (await closeToggle.count()),
+    { timeout: 15_000 },
+  ).toBeGreaterThanOrEqual(1)
+  if (await openToggle.count() === 1) {
+    if (await openToggle.getAttribute('aria-expanded') !== 'true') await openToggle.click()
+  }
+  const search = page.getByPlaceholder('Search sessions...')
   if (await chat.count() === 0) {
     await search.fill('WATERFALL')
     const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
@@ -71,10 +80,10 @@ async function ensureSeedOpen(page: Page): Promise<void> {
   }
   await chat.click()
   await page.getByText('FIRST_DONE', { exact: true }).waitFor({ timeout: 15_000 })
-  if (await search.inputValue() !== '') {
-    await search.fill('')
-    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
-  }
+  // The box's clear control is the only closer: leave the plain tree behind
+  // for the later scenarios.
+  await page.getByRole('button', { name: 'Clear search' }).click()
+  await expect.poll(async () => (await openToggle.count()), { timeout: 10_000 }).toBe(1)
 }
 
 describe('web e2e: navigation & panes over a rich seeded session', () => {
@@ -188,10 +197,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // seeded Ungrouped bucket row is the final user-visible barrier before
     // editing search (the compact layout dropped group session counts).
     await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
-    // Search is a collapsed header action; expand it so the input is actionable.
-    const searchButton = page.getByRole('button', { name: 'Search sessions' })
-    if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-    const search = page.getByPlaceholder('Search sessions', { exact: false })
+    // Search opens from the control row's toggle; open the box before typing.
+    const searchToggle = page.getByRole('button', { name: 'Open session search' })
+    if (await searchToggle.getAttribute('aria-expanded') !== 'true') await searchToggle.click()
+    const search = page.getByPlaceholder('Search sessions...')
     // The cold row has not been opened, so only the persisted log can satisfy
     // this query. First search lazily reconciles the SQLite content index.
     await search.fill('zzzqx-no-such-session')
@@ -219,7 +228,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.getByText('FIRST_DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByRole('heading', { name: 'Navigation Summary' }).count(), { timeout: 15_000 }).toBe(1)
     await page.getByRole('button', { name: 'Clear search' }).click()
-    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
+    // The clear control is the box's only closer: it empties the query and
+    // unmounts the box with the browsing region restored.
+    await expect.poll(async () =>
+      page.getByPlaceholder('Search sessions...').count(), { timeout: 10_000 }).toBe(0)
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
   }, 90_000)
 

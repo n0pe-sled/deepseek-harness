@@ -1,13 +1,14 @@
-- button "New session"
+- text: n0pe-sled AI
 - button "Collapse sidebar":
   - img
 - button "New session":
   - img
-  - text: New Session
-- text: Workspaces
-- button "Search sessions":
+- button "Settings":
   - img
-- textbox "Search sessions..."
+  - text: Settings
+- button "Open session search":
+  - img
+- text: Workspaces
 - button "View options":
   - img
 - button "Add workspace":
@@ -17,9 +18,6 @@
     - img
     - text: workspace
   - treeitem "New Session" [selected]
-- button "Settings":
-  - img
-  - text: Settings
 - text: Into the Unknown Preview
 - button "Choose workspace":
   - img

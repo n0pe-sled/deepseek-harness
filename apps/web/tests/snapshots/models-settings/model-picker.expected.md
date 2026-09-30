@@ -1,0 +1,18 @@
+- dialog "Choose models to add":
+  - heading "Choose models to add" [level=2]
+  - button "Close":
+    - img
+  - paragraph: These are the models this provider has available. Choose the ones to add.
+  - button "Select all"
+  - list:
+    - listitem:
+      - checkbox "MiniMax-M2.7"
+      - text: MiniMax-M2.7
+    - listitem:
+      - checkbox "MiniMax-M2.7-highspeed"
+      - text: MiniMax-M2.7-highspeed
+    - listitem:
+      - checkbox "MiniMax-M3"
+      - text: MiniMax-M3
+  - button "Cancel"
+  - button "Add selected"

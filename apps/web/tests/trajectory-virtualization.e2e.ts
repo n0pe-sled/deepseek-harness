@@ -66,10 +66,18 @@ interface RowAnchor {
 }
 
 async function openSeed(page: Page): Promise<void> {
-  // Search collapsed into a header action; expand it before filling.
-  const searchButton = page.getByRole('button', { name: 'Search sessions' })
-  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
+  // The 900px world boots the collapsed rail, whose one search control opens
+  // the box and expands the sidebar in the same gesture; a wider world uses
+  // the control-row toggle. Either entry settles the crossfade first.
+  const railSearch = page.getByRole('button', { name: 'Search sessions' })
+  const searchToggle = page.getByRole('button', { name: 'Open session search' })
+  await expect.poll(
+    async () => (await railSearch.count()) + (await searchToggle.count()),
+    { timeout: 15_000 },
+  ).toBeGreaterThanOrEqual(1)
+  if (await railSearch.count() === 1) await railSearch.click()
+  else if (await searchToggle.getAttribute('aria-expanded') !== 'true') await searchToggle.click()
+  const search = page.getByPlaceholder('Search sessions...')
   await search.fill(FIXTURE.markers.user(1))
   const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   await expect.poll(() => result.count(), { timeout: 60_000 }).toBe(1)

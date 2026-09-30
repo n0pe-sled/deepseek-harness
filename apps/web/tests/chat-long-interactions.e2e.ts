@@ -80,10 +80,25 @@ async function openSeed(page: Page): Promise<void> {
   // The compact layout dropped group session counts; the seeded baseline is
   // the Ungrouped bucket once cold summaries load.
   await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
-  // Search collapsed into a header action; expand it before filling.
-  const searchButton = page.getByRole('button', { name: 'Search sessions' })
-  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByRole('textbox', { name: 'Search sessions...', exact: true })
+  // The 900px world boots the collapsed rail, whose one search control opens
+  // the box and expands the sidebar in the same gesture; a wider world uses
+  // the control-row toggle. Hand-rolled settling because expect.poll is
+  // test-scoped and this runs in beforeAll; the settle also rides out the
+  // collapse crossfade before the entry decision.
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const railCount = await page.getByRole('button', { name: 'Search sessions' }).count()
+    const wideCount = await page.getByRole('button', { name: 'Open session search' }).count()
+    if (railCount === 1) { await page.getByRole('button', { name: 'Search sessions' }).click(); break }
+    if (railCount + wideCount >= 1) {
+      const open = page.getByRole('button', { name: 'Open session search' })
+      if (await open.getAttribute('aria-expanded') !== 'true') await open.click()
+      break
+    }
+    if (Date.now() > deadline) throw new Error('sidebar search entry never appeared after the collapse settled')
+    await page.waitForTimeout(200)
+  }
+  const search = page.getByPlaceholder('Search sessions...')
   await search.fill(FIXTURE.markers.user(1))
   const results = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   await results.first().waitFor({ timeout: 60_000 })
