@@ -14,7 +14,8 @@
     "stage:harness:linux": "node scripts/stage-harness.mjs --target linux-x64-glibc --out resources/harness-linux-x64",
     "stage:harness:linux:arm64": "node scripts/stage-harness.mjs --target linux-arm64-glibc --out resources/harness-linux-arm64",
     "dist": "pnpm build && electron-builder --publish never",
-    "dist:release": "pnpm stage:harness && pnpm build && electron-builder --publish never",
+    "stage:harness:all": "pnpm stage:harness && pnpm stage:harness:linux && pnpm stage:harness:linux:arm64",
+    "dist:release": "pnpm stage:harness:all && pnpm build && electron-builder --publish never",
     "test": "vitest run"
   },
   "author": {

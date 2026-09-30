@@ -41,6 +41,8 @@ export interface HarnessMeta {
   libc?: string
   /** Node version of the machine that ran the staging, not a requirement. */
   node?: string
+  /** Version of the executable shipped at bin/node. */
+  runtimeVersion?: string
   /** Where the closure came from; retained for older records. */
   source?: string
   /** ISO timestamp of the staging run. */
@@ -105,7 +107,7 @@ export function findClosures(resourcesDir: string): ClosureEntry[] {
     if (meta?.version === undefined || meta.revision === undefined) continue
     const target = metaTarget(meta)
     if (target === undefined) continue
-    entries.push({ key: harnessCacheKey(meta.version, meta.revision, target), root, cli, meta, target })
+    entries.push({ key: harnessCacheKey(meta.version, meta.revision, target, meta.runtimeVersion), root, cli, meta, target })
   }
   return entries
 }

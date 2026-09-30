@@ -47,6 +47,7 @@
  * the caller's checkout, so the caller's `pnpm-workspace.yaml` and installed
  * tree are never edited.
  */
+import { NODE_VERSION, nodeDistribution, stageNode } from './stage-node.ts'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
@@ -66,7 +67,7 @@ const DEPLOY_FILTER = '@deepseek-ai/dsh'
 /** Workspace-relative pnpm virtual store, source for link-override packages. */
 const DEPLOY_FILTER_STORE = 'node_modules/.pnpm'
 /** Bumped when the staged layout changes, so a stale tree is never mistaken for a fresh one. */
-const LAYOUT = 2
+const LAYOUT = 3
 
 function parseArgs(argv) {
   const opts = { workspace: undefined, build: false, keepStage: false, target: undefined, out: undefined, keepWorktree: false }
@@ -655,10 +656,11 @@ function restoreBuildArtifacts(workspace, target) {
   return restored
 }
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2))
   const host = hostTarget()
   const target = opts.target === undefined ? host : parseTarget(opts.target)
+  nodeDistribution(target)
   const foreign = !targetsEqual(target, host)
   const output = opts.out === undefined ? outDir : resolve(repoRoot, opts.out)
   const scratch = foreign ? resolve(repoRoot, 'resources/.harness-stage-target') : stageDir
@@ -672,7 +674,7 @@ function main() {
   console.log(`stage-harness: workspace ${workspace}`)
   console.log(`stage-harness: pinned ${DEPLOY_FILTER}@${pinnedVersion} (revision ${revision})`)
   console.log(`stage-harness: target ${formatTarget(target)}${foreign ? ` (cross-staging from ${formatTarget(host)})` : ''}`)
-  console.log(`stage-harness: cache key ${harnessCacheKey(pinnedVersion, revision, target)}`)
+  console.log(`stage-harness: cache key ${harnessCacheKey(pinnedVersion, revision, target, NODE_VERSION)}`)
 
   if (opts.build) {
     console.log('stage-harness: building the harness workspace')
@@ -762,6 +764,8 @@ function main() {
       throw new Error(`staged closure is missing packages: ${unresolved.join(', ')}`)
     }
 
+    await stageNode(target, scratch)
+
     rmSync(output, { recursive: true, force: true })
     mkdirSync(dirname(output), { recursive: true })
     cpSync(scratch, output, { recursive: true, dereference: true })
@@ -787,6 +791,7 @@ function main() {
       arch: target.arch,
       ...(target.platform === 'linux' ? { libc: target.libc ?? 'glibc' } : {}),
       node: process.version,
+      runtimeVersion: NODE_VERSION,
       stagedAt: new Date().toISOString(),
     }, null, 2)}\n`)
 
@@ -804,4 +809,4 @@ function mb(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-main()
+await main()

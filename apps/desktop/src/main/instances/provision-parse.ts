@@ -78,23 +78,6 @@ export function parseGlibcVersion(lddOutput: string): string | undefined {
   return match === null ? undefined : `${match[1]}.${match[2]}`
 }
 
-/**
- * The harness engine range, as declared by the harness root `package.json`:
- * `^22.19.0 || >=24.0.0`. Encoded here as a predicate rather than parsed,
- * because a range parser is a dependency this does not need and the range is
- * one line of the fork's own manifest.
- */
-export function nodeSatisfiesHarness(nodeVersion: string): boolean {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/u.exec(nodeVersion.trim())
-  const majorText = match?.[1]
-  const minorText = match?.[2]
-  if (majorText === undefined || minorText === undefined) return false
-  const major = Number.parseInt(majorText, 10)
-  const minor = Number.parseInt(minorText, 10)
-  if (major === 22) return minor >= 19
-  return major >= 24
-}
-
 /** Quote one value for a POSIX shell, so a path with spaces survives. */
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/gu, `'\\''`)}'`
@@ -219,10 +202,10 @@ export function buildExtractCommand(tmpDir: string, finalDir: string): string {
     `rm -rf ${tmp} ${final}`,
     `mkdir -p ${tmp}`,
     'tar xzf - -C ' + tmp + ' --strip-components=1',
-    // Prove the extraction is complete before it can be mistaken for a cache:
-    // the CLI entry and the version record are the two files every closure has.
+    // Cache entries require the CLI, metadata, and executable runtime.
     `test -f ${tmp}/lib/bin.js || { echo "closure is missing lib/bin.js" >&2; exit 1; }`,
     `test -f ${tmp}/harness-meta.json || { echo "closure is missing harness-meta.json" >&2; exit 1; }`,
+    `test -x ${tmp}/bin/node || { echo "closure is missing executable bin/node" >&2; exit 1; }`,
     `mv ${tmp} ${final}`,
     `echo extracted`,
   ].join('; ')
@@ -248,11 +231,9 @@ export function buildLaunchCommand(opts: {
   const node = shellQuote(opts.nodePath)
   const log = shellQuote(opts.logPath)
   const pid = shellQuote(opts.pidPath)
-  // `cd ... && setsid ... &` then a separate `echo`, joined with a newline: `&`
-  // is already a command separator, so appending `;` after it is a syntax error
-  // the remote shell rejects before running anything.
+  const script = `export PATH=${shellQuote(`${opts.closureDir}/bin`)}:"$PATH"; echo $$ > ${pid}; exec ${node} lib/bin.js web --port 0 --no-open`
   return [
-    `cd ${dir} && setsid sh -c "echo \\$\\$ > ${pid}; exec ${node} lib/bin.js web --port 0 --no-open" >${log} 2>&1 </dev/null &`,
+    `cd ${dir} && setsid sh -c ${shellQuote(script)} >${log} 2>&1 </dev/null &`,
     'echo launched',
   ].join('\n')
 }

@@ -12,7 +12,6 @@ import {
   buildDetectCommand,
   buildExtractCommand,
   buildLaunchCommand,
-  nodeSatisfiesHarness,
   parseDetectOutput,
   parseGlibcVersion,
   parsePidFile,
@@ -80,26 +79,6 @@ describe('parseGlibcVersion', () => {
 
   it('is undefined when there is no version to read', () => {
     expect(parseGlibcVersion('ldd: command not found')).toBeUndefined()
-  })
-})
-
-describe('nodeSatisfiesHarness', () => {
-  it('accepts the harness range ^22.19.0 || >=24.0.0', () => {
-    expect(nodeSatisfiesHarness('v22.19.0')).toBe(true)
-    expect(nodeSatisfiesHarness('v22.20.1')).toBe(true)
-    expect(nodeSatisfiesHarness('v24.21.0')).toBe(true)
-    expect(nodeSatisfiesHarness('v26.10.0')).toBe(true)
-  })
-
-  it('rejects what the range excludes', () => {
-    expect(nodeSatisfiesHarness('v22.18.0')).toBe(false)
-    expect(nodeSatisfiesHarness('v20.11.0')).toBe(false)
-    expect(nodeSatisfiesHarness('v23.5.0')).toBe(false)
-  })
-
-  it('rejects an unparseable version instead of assuming it is fine', () => {
-    expect(nodeSatisfiesHarness('none')).toBe(false)
-    expect(nodeSatisfiesHarness('')).toBe(false)
   })
 })
 

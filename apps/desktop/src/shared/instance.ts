@@ -50,7 +50,7 @@ export interface ProvisionOptions {
   target?: string
   /** Remote directory for the closure; default `$HOME/.dsh-desktop/harness`. */
   remoteRoot?: string
-  /** Filesystem path of the node runtime on the remote; default `node` from PATH. */
+  /** Filesystem path of the node runtime on the remote; default the shipped `bin/node`. */
   nodePath?: string
 }
 

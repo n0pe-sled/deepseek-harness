@@ -191,7 +191,7 @@ closures that do exist.
   not the session. Closing it means building the binary on a same-architecture
   Linux host, which is what CI does.
 - **glibc only.** No musl closure is staged.
-- **The remote needs its own `node`** (`^22.19.0 || >=24.0.0`).
+- **Node ships with the closure** at `bin/node`; see the [SSH provisioning reference](../README.md#remote-hosts-shipping-the-harness-over-ssh).
 - **Timings come from an emulated x86_64 host** and are pessimistic; correctness
   results are unaffected.
 

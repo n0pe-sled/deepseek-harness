@@ -102,7 +102,7 @@ jobs:
         working-directory: apps/desktop
         env:
           DSH_HARNESS_WORKSPACE: ${{ github.workspace }}
-        run: pnpm stage:harness
+        run: pnpm stage:harness:all
 
       - name: Build the Electron app
         working-directory: apps/desktop

@@ -17,7 +17,7 @@
  * does.
  */
 import { spawn } from 'node:child_process'
-import { readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { formatTarget, harnessCacheKey, parseTarget, targetsEqual } from '../../shared/harness-target.ts'
 import type { StageTarget } from '../../shared/harness-target.ts'
 import type { ProvisionOptions, SandboxOptions, SshOptions } from '../../shared/instance.ts'
@@ -28,7 +28,6 @@ import {
   buildDetectCommand,
   buildExtractCommand,
   buildLaunchCommand,
-  nodeSatisfiesHarness,
   parseDetectOutput,
   parseRemoteLogPort,
   remoteClosureDir,
@@ -183,17 +182,6 @@ export class RemoteProvisioner {
 
   /** Every refusal that can be decided before anything is shipped. */
   preflight(facts: RemoteFacts, opts: SshOptions): void {
-    if (facts.nodeVersion === undefined) {
-      throw new ProvisionRefusedError(
-        `${opts.host} has no \`node\` on PATH. A provisioned instance runs the harness with the remote's own Node, `
-        + 'and the harness needs ^22.19.0 or >=24.0.0.',
-      )
-    }
-    if (!nodeSatisfiesHarness(facts.nodeVersion)) {
-      throw new ProvisionRefusedError(
-        `${opts.host} has node ${facts.nodeVersion}, which the harness does not support (needs ^22.19.0 or >=24.0.0).`,
-      )
-    }
     if (facts.homeWritable !== true) {
       throw new ProvisionRefusedError(
         `${facts.writableTarget ?? 'the closure directory'} is not writable on ${opts.host}. `
@@ -225,7 +213,7 @@ export class RemoteProvisioner {
     const reference = entries.find((entry) => entry.meta.platform === process.platform
       && entry.meta.arch === process.arch) ?? entries[0]
     const wanted = {
-      key: harnessCacheKey(reference?.meta.version ?? '', reference?.meta.revision ?? '', target),
+      key: harnessCacheKey(reference?.meta.version ?? '', reference?.meta.revision ?? '', target, reference?.meta.runtimeVersion),
       target,
     }
     try {
@@ -248,6 +236,9 @@ export class RemoteProvisioner {
    * signal and no separate manifest is needed.
    */
   async ensureShipped(opts: SshOptions, entry: ClosureEntry, remoteDir: string): Promise<boolean> {
+    if (entry.meta.runtimeVersion === undefined || !existsSync(`${entry.root}/bin/node`)) {
+      throw new ProvisionRefusedError('the staged harness has no bundled Node runtime; rerun pnpm stage:harness for this target')
+    }
     if (await this.hasClosure(opts, remoteDir)) {
       this.deps.log(`closure ${entry.key} is already on the host`)
       return false
@@ -267,7 +258,7 @@ export class RemoteProvisioner {
     // entry is exactly the half-transfer this design must never cache.
     if (!(await this.hasClosure(opts, remoteDir))) {
       throw new ProvisionRefusedError(
-        `the closure did not arrive intact on ${opts.host}: ${remoteDir} has no lib/bin.js. `
+        `the closure did not arrive intact on ${opts.host}: ${remoteDir} is missing its CLI, metadata, or executable Node runtime. `
         + 'A partial transfer is never left under the closure key, so the next connect will retry.',
       )
     }
@@ -279,7 +270,7 @@ export class RemoteProvisioner {
   private async hasClosure(opts: SshOptions, remoteDir: string): Promise<boolean> {
     const result = await this.run(
       opts,
-      `test -f ${shellQuote(`${remoteDir}/lib/bin.js`)} && test -f ${shellQuote(`${remoteDir}/harness-meta.json`)} && echo present || echo absent`,
+      `test -f ${shellQuote(`${remoteDir}/lib/bin.js`)} && test -f ${shellQuote(`${remoteDir}/harness-meta.json`)} && test -x ${shellQuote(`${remoteDir}/bin/node`)} && echo present || echo absent`,
     )
     return result.stdout.includes('present')
   }
@@ -415,7 +406,7 @@ export class RemoteProvisioner {
     await this.ensureShipped(opts, entry, remoteDir)
     const nodePath = provision.nodePath !== undefined && provision.nodePath !== ''
       ? provision.nodePath
-      : 'node'
+      : `${remoteDir}/bin/node`
     const { remotePort, reused } = await this.launch(opts, remoteDir, nodePath)
     this.deps.log(`remote harness listening on 127.0.0.1:${String(remotePort)}`)
 

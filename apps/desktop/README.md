@@ -71,7 +71,7 @@ PATH**. Two pieces make that work:
 ```bash
 pnpm stage:harness              # stage from this checkout (its current build)
 pnpm stage:harness -- --build   # build the harness first
-pnpm dist:release               # stage + build + dmg in one step
+pnpm dist:release               # stage Mac + Linux x64/arm64, build, and dmg
 ```
 
 Staging fails loudly rather than shipping a broken closure: it verifies the
@@ -98,26 +98,25 @@ pnpm stage:harness:linux   # closure for linux-x64 glibc remotes
 pnpm dist                  # packages resources/harness* into the .dmg
 ```
 
+Each staged closure includes Node 24.21.0 for its target at `bin/node` and its license at `NODE-LICENSE`. Staging downloads the official archive and verifies its pinned SHA-256 digest before extraction. SSH hosts need no Node installation or runtime download access. The launcher adds the bundled runtime to `PATH`; `provision.nodePath` can explicitly override the executable. Release packaging stages the local Mac target and Linux glibc x64 and ARM64 targets. Linux hosts still need libraries compatible with the bundled Node and native addons.
+
 What the sequence does, in order:
 
 1. **Detect** one ssh command reporting `uname`, `$HOME`, `ldd`, the loader,
    the distribution, `node --version`, free space, and whether the closure's
    parent directory is writable.
 2. **Preflight**, refusing before anything is transferred: musl hosts (the native
-   addons are glibc builds and no musl closure is staged), a missing or
-   unsupported Node, a read-only or too-small target directory. The refusal names
+   addons are glibc builds and no musl closure is staged), a read-only or too-small target directory. The refusal names
    the cause.
-3. **Select** the closure whose `version-revision-platform-arch-libc` matches the
+3. **Select** the closure whose `version-revision-platform-arch-libc-node-runtimeVersion` matches the
    host. A directory under that key exists on the remote only because a completed
    extraction renamed it there, so its presence is the cache and a reconnect
    costs one ssh round trip.
 4. **Ship** with `tar cz | ssh host '<extract>'`. Extraction goes to `<key>.tmp`
-   and is renamed into place only after `lib/bin.js` and `harness-meta.json` both
-   exist, so an interrupted transfer can never be mistaken for a valid cache. The
+   and is renamed into place only after `lib/bin.js`, `harness-meta.json`, and executable `bin/node` exist, so an interrupted transfer can never be mistaken for a valid cache. The
    stream excludes macOS `._*` sidecars, which would otherwise land in the temp
    directory and defeat that check.
-5. **Launch** detached (`setsid`, all three streams redirected) with the remote's
-   own Node, and read the port off the readiness line. The launcher records a PID
+5. **Launch** detached (`setsid`, all three streams redirected) with the bundled Node runtime, and read the port off the readiness line. The launcher records a PID
    file, so a second connect adopts the running server instead of starting
    another.
 6. **Tunnel** that discovered port to a local loopback port for the GUI.

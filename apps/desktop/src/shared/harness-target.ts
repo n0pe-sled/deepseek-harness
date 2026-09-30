@@ -105,8 +105,8 @@ export function targetsEqual(a: StageTarget, b: StageTarget): boolean {
  * so it must change whenever the bytes would: a new harness revision, or a
  * different native build.
  */
-export function harnessCacheKey(version: string, revision: string, target: StageTarget): string {
-  return `${version}-${revision}-${formatTarget(target)}`
+export function harnessCacheKey(version: string, revision: string, target: StageTarget, runtimeVersion?: string): string {
+  return `${version}-${revision}-${formatTarget(target)}${runtimeVersion === undefined ? '' : `-node-${runtimeVersion}`}`
 }
 
 /** Native packages whose platform is spelled into the package name itself. */
