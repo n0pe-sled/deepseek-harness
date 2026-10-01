@@ -175,6 +175,12 @@ jobs:
           fi
           # --publish never: electron-builder auto-enables publishing on a v* tag,
           # and the release is published by softprops/action-gh-release below.
+          # osx-sign scans binary candidates concurrently across every staged closure.
+          # Reserve descriptors for all payload files plus Electron and packaging work.
+          signing_files=$(find resources -type f | wc -l)
+          signing_limit=$((signing_files + 16384))
+          ulimit -S -n "$signing_limit"
+          echo "signing descriptor limit: $(ulimit -S -n); staged files: $signing_files"
           pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
 
       # electron-builder notarizes the .app and the pkg target, but not the dmg

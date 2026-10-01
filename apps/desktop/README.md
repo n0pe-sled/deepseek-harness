@@ -57,6 +57,8 @@ pnpm dist       # electron-builder dmg → release/ (uses the already-staged clo
 
 Beta builds use a prerelease version such as `0.1.6-beta.1` and publish from a matching `v0.1.6-beta.1` tag on the `beta` branch. GitHub marks these releases as prereleases and keeps the latest stable release unchanged.
 
+The macOS release job raises the signing process’s file-descriptor limit to cover the staged payload plus Electron overhead; the signer examines files concurrently across the bundled closures.
+
 Staging uses the reviewed frozen lockfile with lifecycle scripts disabled. Cross-target installs use the same frozen lockfile and disable lifecycle scripts while selecting native packages for the host and target architectures. It resolves scoped packages and npm aliases from the checkout’s installed pnpm store; declaration-only dependencies with an empty `main` field require no runtime entry.
 
 A packaged build carries its own harness, so a user can copy the `.dmg` into
