@@ -2,6 +2,7 @@
   "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
+    "types": ["client-build-environment", "node"],
     "outDir": "lib/types"
   },
   "include": [
@@ -28,6 +29,18 @@
     },
     {
       "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../connection/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-primitives"
+    },
+    {
+      "path": "../../../vendor/schemastery"
     }
   ]
 }

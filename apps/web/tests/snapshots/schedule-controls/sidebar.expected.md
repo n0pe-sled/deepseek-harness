@@ -1,0 +1,21 @@
+Sidebar toolbar: clock button
+- dialog "Scheduled tasks":
+  - heading "Scheduled tasks" [level=2]
+  - button "Close scheduled tasks":
+    - img
+  - paragraph: Tasks run only while this conversation is live and the host is running. Reopen the conversation to process overdue tasks. Results and tool details appear in this conversation.
+  - text: Task instruction
+  - textbox "Task instruction":
+    - /placeholder: Summarize files in my project
+    - text: Summarize project files
+  - text: When
+  - textbox "When":
+    - /placeholder: In 10 minutes, or every hour
+    - text: Every hour
+  - button "Prepare task"
+  - button "List tasks"
+  - text: Task id
+  - textbox "Task id":
+    - /placeholder: Id from List tasks
+  - button "Prepare cancellation" [disabled]
+  - paragraph: These buttons add an editable request to your draft. Send it to apply the change. Recurring intervals must be at least five minutes.

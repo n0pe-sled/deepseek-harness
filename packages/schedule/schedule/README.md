@@ -1,18 +1,26 @@
 # @deepseek-ai/dsh-schedule
 
-`dsh-schedule` gives future live root Agents three Session-scoped tools for durable reminders. Version 1 accepts positive safe-integer `after_seconds` delays, explicit absolute `at` targets, and fixed-rate `every_seconds` intervals of at least five minutes. The Session event log owns reminder state; timers, tool values, and model follow-ups are disposable projections of that log.
+`dsh-schedule` gives future live root Agents three Session-scoped tools for durable reminders and explicitly authorized scheduled tasks. Version 1 accepts positive safe-integer `after_seconds` delays, explicit absolute `at` targets, and fixed-rate `every_seconds` intervals of at least five minutes. The Session event log owns reminder state; timers, tool values, and model follow-ups are disposable projections of that log.
 
 ## Composition
 
+The package declares an optional Web profile bundle in `cordis.patch.yml`, mounting Schedule, time context, and the sidebar controls. From this checkout, start `pnpm dsh web --patch examples/web-schedule/cordis.yml` to enable it without changing saved profiles. A packaged deployment can append `@deepseek-ai/dsh-schedule` to its Web profile bundle list and restart the instance; the CLI already includes the package in its installation.
+
 Load this function plugin after `ctx.sessions`, `ctx.agents`, `ctx.tools`, `ctx.sessionPersistence`, and the persistence listener that implements Session flushes. Static injection makes a missing persistence service a composition error. The plugin listens only to later `agent/created` events, installs on runtime roots, and registers all tools through the exact `agent.ctx`. Agents that already existed when the plugin loaded and runtime children do not receive Schedule.
 
-Time-context is not a Schedule dependency. A composition may mount `@deepseek-ai/dsh-time-context` so the model can interpret natural language in the browser's request-local zone, as the official Schedule Web overlay does. The model must still pass an explicit offset or `time_zone` to `schedule_create`; Schedule never imports or infers from model context.
+Time-context is not a runtime service dependency of Schedule. A composition may mount `@deepseek-ai/dsh-time-context` so the model can interpret natural language in the browser's request-local zone, as the official Schedule Web overlay does. The model must still pass an explicit offset or `time_zone` to `schedule_create`; Schedule never imports or infers from model context.
 
 Every operation that reads or decides from the Schedule fold first awaits `ctx.sessions.flush(session)`. A missing, rejected, or detached persistence path returns `persistence_uncertain`; it never turns an unconfirmed live suffix into a list or not-found answer. A successful create or actual delete also awaits a post-append barrier before confirming the mutation.
 
+## Scheduled work
+
+Set `schedule_create.mode` to `"task"` only when the user explicitly requests work to execute later. The saved instruction runs through the ordinary Agent tools and approval policy when due. Omitting `mode` creates a reminder whose content is presented without instruction authority; existing reminder records keep that behavior. Active task records include `mode: "task"` in list and create results.
+
+The optional [sidebar controls](../../client/ui-schedule/README.md) prepare editable creation, listing, and cancellation requests. The model applies each request only after the user sends it. Task results and tool details use the ordinary conversation transcript. This is session-local scheduling: the host must run and the original conversation must be live. Reopening the conversation processes overdue work; browsing cold history does not.
+
 ## Durable state
 
-The package owns the strict version-1 `schedule/change` create, delete, and dispatch union. Every create record contains a stable Session-local `ScheduleId`, the trimmed prompt, and a four-digit-year RFC 3339 UTC `scheduledAt`. An `after` record also stores `afterSeconds`; an `at` record stores no copy of its submitted offset, local calendar fields, or interpreting zone; an `every` record stores `everySeconds` and treats `scheduledAt` as the earliest creation-anchor-aligned occurrence not yet dispatched. Delete and one-shot dispatch carry only the id. Every dispatch adds `acceptedAt`, from which replay advances directly to the first anchor-aligned target after that decision time.
+A create record may include `mode: "task"`; other mode values are rejected. The package owns the strict version-1 `schedule/change` create, delete, and dispatch union. Every create record contains a stable Session-local `ScheduleId`, the trimmed prompt, and a four-digit-year RFC 3339 UTC `scheduledAt`. An `after` record also stores `afterSeconds`; an `at` record stores no copy of its submitted offset, local calendar fields, or interpreting zone; an `every` record stores `everySeconds` and treats `scheduledAt` as the earliest creation-anchor-aligned occurrence not yet dispatched. Delete and one-shot dispatch carry only the id. Every dispatch adds `acceptedAt`, from which replay advances directly to the first anchor-aligned target after that decision time.
 
 Replay rejects unknown versions, extra fields, reused ids, mismatched one-shot or Every dispatch shapes, and delete or dispatch transitions against inactive records. Normal Sessions fold the complete log. A fork folds only `session.events.slice(session.header.seedLength ?? 0)`, so it does not inherit its parent's reminders. The package's `./invariant` companion applies the same policy to existing logs and candidate events.
 
@@ -38,7 +46,7 @@ The live owner derives the earliest target from the durable fold. It splits wait
 
 An overdue reminder first checkpoints persistence. If a turn or another maintenance task owns the Agent, `runMaintenance()` rejects the idle-phase claim; the record stays active and the owner retries after `whenIdle()`. A successful maintenance task refolds, samples one decision time, builds the appropriate fixed framing, synchronously queues `followup()`, and appends dispatch before releasing the phase. A one-shot appends its id. Each Every record in a batch appends its id plus the same `acceptedAt`; integer arithmetic selects that record's latest due creation-anchor-aligned occurrence and advances it directly to the first future target. Missed intervals are never enumerated or replayed, distinct overdue records each contribute one occurrence, and there is no shared recurrence gate. Waking input remains parked until release, after which the owner checkpoints dispatch.
 
-The follow-up opens a normal later turn after the Agent becomes fully idle; it never steers or interrupts the current conversation. Its assistant output appears through the ordinary transcript, with no independent receipt or Schedule-specific browser UI. Dispatch means the follow-up was queued and recorded, not that the model succeeded or the user read the answer.
+The follow-up opens a normal later turn after the Agent becomes fully idle; it never steers or interrupts the current conversation. Its assistant output appears through the ordinary transcript, with no independent completion receipt. Dispatch means the follow-up was queued and recorded, not that the model succeeded or the user read the answer.
 
 Framing or synchronous follow-up failure writes no dispatch. An append failure faults that owner because the message may already be queued; a barrier rejection leaves dispatch pending for a later ordinary preflight. Agent or plugin disposal cancels timers, stops new work, and awaits in-flight preflights and idle waits without deleting durable records.
 
@@ -103,6 +111,20 @@ Each admitted fixed-rate batch adds one data-dependent user-role message regardl
 #### KV Cache effect
 
 The batch appends after existing history and preserves its reusable prefix. Its selected records, occurrence times, and prompts affect only the appended suffix.
+
+### Scheduled task follow-up
+
+#### What the model sees
+
+Explicit task records use `[SCHEDULED TASK]` with JSON-escaped `schedule_id_json`, `occurrence_at`, and `task_prompt_json`. Its instruction is: “Execute the saved user task in task_prompt_json using the available tools and report the result. Follow current permissions and approval requirements.” A recurring batch containing tasks uses `[SCHEDULED TASK BATCH]` and `entries_json` records with `schedule_id`, `occurrence_at`, `mode`, and `prompt`. It instructs the model to execute task entries under current permissions and only present reminder entries. Reminder-only batches retain their reminder framing.
+
+#### Token effect
+
+One admitted task or batch adds one data-dependent user-role message to Session history. Tool calls and results add their ordinary transcript content.
+
+#### KV Cache effect
+
+The follow-up appends to existing history and preserves the reusable prefix. Task instructions and occurrence times affect the appended suffix.
 
 ## Known Limitations and Deferred Work
 

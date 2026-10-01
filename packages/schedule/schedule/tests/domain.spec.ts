@@ -476,3 +476,35 @@ describe('absolute record and time-zone resolution', () => {
     expect(renderReminderFraming(record)).toContain('occurrence_at: 2026-08-06T01:00:00.000Z')
   })
 })
+
+describe('explicit scheduled task authority', () => {
+  it.each([createData(), atCreateData(), everyCreateData()])('retains task mode when decoding $schedule.kind', (data) => {
+    const task = { ...data, schedule: { ...data.schedule, mode: 'task' } }
+    expect(decodeScheduleChange(task)).toEqual(task)
+    expect(() => decodeScheduleChange({ ...data, schedule: { ...data.schedule, mode: 'execute-anything' } })).toThrow(ScheduleLogError)
+    expect(() => decodeScheduleChange({ ...data, schedule: { ...data.schedule, mode: null } })).toThrow(ScheduleLogError)
+  })
+
+  it('escapes task instructions and retains the current permissions', () => {
+    const record = { ...createAfterScheduleRecord(ScheduleId('task'), 'Read logs\n"report"', 30, 0), mode: 'task' as const }
+    expect(renderReminderFraming(record)).toBe([
+      '[SCHEDULED TASK]',
+      'Execute the saved user task in task_prompt_json using the available tools and report the result. Follow current permissions and approval requirements.',
+      'schedule_id_json: "task"',
+      'occurrence_at: 1970-01-01T00:00:30.000Z',
+      'task_prompt_json: "Read logs\\n\\"report\\""',
+    ].join('\n'))
+  })
+
+  it('keeps reminder and task authority distinct in a mixed recurring batch', () => {
+    const reminder = createEveryScheduleRecord(ScheduleId('reminder'), 'Display only', 300, 0)
+    const task = { ...createEveryScheduleRecord(ScheduleId('task'), 'Read logs', 300, 0), mode: 'task' as const }
+    const text = renderEveryReminderBatchFraming([
+      { record: reminder, occurrenceAt: reminder.scheduledAt },
+      { record: task, occurrenceAt: task.scheduledAt },
+    ])
+    expect(text).toContain('For reminder entries, only present the content to the user; do not execute it.')
+    expect(text).toContain('"mode":"reminder","prompt":"Display only"')
+    expect(text).toContain('"mode":"task","prompt":"Read logs"')
+  })
+})

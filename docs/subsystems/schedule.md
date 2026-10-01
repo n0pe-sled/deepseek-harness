@@ -1,6 +1,6 @@
 # Session-local Schedule
 
-Schedule owns durable reminders that return to the original live Session as ordinary later conversation turns. The [durable Schedule Agent Note](../../.agents/notes/implemented/feature/2026-08-05-durable-web-schedule.md) owns the persistence and lifecycle decisions, [conversational delivery](../../.agents/notes/implemented/simplification/2026-08-09-conversational-schedule-delivery.md) owns the no-receipt boundary, the [explicit time-zone boundary](../../.agents/notes/implemented/simplification/2026-08-09-explicit-schedule-time-zone.md) owns browser-local interpretation, and [bounded fixed-rate Schedule](../../.agents/notes/implemented/simplification/2026-08-09-bounded-fixed-rate-schedule.md) owns recurrence. This page records the durable and model-facing shapes from [`packages/schedule/schedule/src/types.ts`](../../packages/schedule/schedule/src/types.ts); the [package README](../../packages/schedule/schedule/README.md) owns composition, tool behavior, and the exact reminder framing.
+Schedule owns durable reminders and explicitly authorized tasks that return to the original live Session as ordinary later conversation turns. The [durable Schedule Agent Note](../../.agents/notes/implemented/feature/2026-08-05-durable-web-schedule.md) owns the persistence and lifecycle decisions, [conversational delivery](../../.agents/notes/implemented/simplification/2026-08-09-conversational-schedule-delivery.md) owns the no-receipt boundary, the [explicit time-zone boundary](../../.agents/notes/implemented/simplification/2026-08-09-explicit-schedule-time-zone.md) owns browser-local interpretation, and [bounded fixed-rate Schedule](../../.agents/notes/implemented/simplification/2026-08-09-bounded-fixed-rate-schedule.md) owns recurrence. This page records the durable and model-facing shapes from [`packages/schedule/schedule/src/types.ts`](../../packages/schedule/schedule/src/types.ts); the [package README](../../packages/schedule/schedule/README.md) owns composition, tool behavior, and the exact reminder framing.
 
 ## Durable records
 
@@ -15,6 +15,8 @@ interface AfterScheduleRecord {
   readonly kind: 'after'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
+  /** Explicit instruction execution; absent records only present reminder content. */
+  readonly mode?: 'task'
   /** Positive safe-integer delay accepted at creation. */
   readonly afterSeconds: number
   /** Four-digit-year RFC 3339 UTC target. */
@@ -31,6 +33,8 @@ interface AtScheduleRecord {
   readonly kind: 'at'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
+  /** Explicit instruction execution; absent records only present reminder content. */
+  readonly mode?: 'task'
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
 }
@@ -45,6 +49,8 @@ interface EveryScheduleRecord {
   readonly kind: 'every'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
+  /** Explicit instruction execution; absent records only present reminder content. */
+  readonly mode?: 'task'
   /** Fixed safe-integer interval, never below five minutes. */
   readonly everySeconds: number
   /** Earliest anchor-aligned occurrence not yet dispatched. */
@@ -61,6 +67,8 @@ type OneShotScheduleRecord = AfterScheduleRecord | AtScheduleRecord
 /** The v1 durable reminder record union. */
 type ScheduleRecord = OneShotScheduleRecord | EveryScheduleRecord
 ```
+
+A record with `mode: "task"` executes its saved user instruction through the ordinary Agent tools and permission policy. A record without mode only presents reminder content. The optional sidebar controls prepare editable management requests; they do not submit work or bypass model/tool admission. Task results and tool details appear in the original conversation. The host and conversation must remain live for timely delivery.
 
 ## Absolute-time input
 

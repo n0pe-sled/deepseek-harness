@@ -28,3 +28,32 @@ describe('ui-deliverables node plugin', () => {
       .some(entry => entry.name === 'ui:deliverable-file-references')).toBe(false)
   })
 })
+
+it('registers file reads only while its session and connection dependencies are mounted', async () => {
+  const { Service } = await import('@deepseek-ai/cordis')
+  const { default: Sessions } = await import('@deepseek-ai/dsh-session')
+  const routes = new Map<string, unknown>()
+  class Connection extends Service {
+    constructor(owner: Context) { super(owner, 'connection') }
+    get rpc() {
+      const owner = this.ctx
+      return {
+        handle(channel: string, handler: unknown) {
+          return owner.effect(() => {
+            routes.set(channel, handler)
+            return () => { routes.delete(channel) }
+          })
+        },
+      }
+    }
+  }
+  ctx = new Context()
+  await ctx.plugin(SystemPrompt, { persona: '' }).await()
+  await ctx.plugin(Sessions).await()
+  await ctx.plugin(Connection).await()
+  const mounted = ctx.plugin({ apply, inject })
+  await mounted.await()
+  expect(routes.has('/file-preview')).toBe(true)
+  await mounted.dispose()
+  expect(routes.size).toBe(0)
+})

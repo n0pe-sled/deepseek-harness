@@ -17,6 +17,8 @@ export interface AfterScheduleRecord {
   readonly kind: 'after'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
+  /** Explicit instruction execution; absent records only present reminder content. */
+  readonly mode?: 'task'
   /** Positive safe-integer delay accepted at creation. */
   readonly afterSeconds: number
   /** Four-digit-year RFC 3339 UTC target. */
@@ -31,6 +33,8 @@ export interface AtScheduleRecord {
   readonly kind: 'at'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
+  /** Explicit instruction execution; absent records only present reminder content. */
+  readonly mode?: 'task'
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
 }
@@ -43,6 +47,8 @@ export interface EveryScheduleRecord {
   readonly kind: 'every'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
+  /** Explicit instruction execution; absent records only present reminder content. */
+  readonly mode?: 'task'
   /** Fixed safe-integer interval, never below five minutes. */
   readonly everySeconds: number
   /** Earliest anchor-aligned occurrence not yet dispatched. */

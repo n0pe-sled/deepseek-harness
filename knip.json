@@ -160,12 +160,17 @@
     },
     "packages/client/ui-deliverables": {
       "entry": [
-        "tests/**/*.spec.tsx"
+        "tests/**/*.spec.tsx",
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
         "src/**/*.tsx",
-        "tests/**/*.tsx"
+        "tests/**/*.tsx",
+        "tests/**/*.ts"
+      ],
+      "ignoreBinaries": [
+        "mkfifo"
       ]
     },
     "packages/client/ui-workflow-run": {
@@ -663,6 +668,29 @@
     "packages/bundle/web-app": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "packages/client/ui-schedule": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/schedule/schedule": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-client-ui-schedule",
+        "@deepseek-ai/dsh-time-context"
       ]
     }
   }

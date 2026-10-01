@@ -11,6 +11,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { z } from 'zod'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { en, NS, type DeliverablesKey } from './locales.ts'
 import {
@@ -27,6 +28,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
 export { producedForClosing } from './turn-deliverables.ts'
 
+const previewResponse = z.object({
+  base64: z.string(),
+  limits: z.object({
+    expandedBytes: z.number().int().positive(),
+    entries: z.number().int().positive(),
+    cells: z.number().int().positive(),
+    columns: z.number().int().positive(),
+  }),
+})
+
 /** Required services for the tail-slot registration and its dictionaries. */
 export const inject = ['slots', 'locale', 'conversationEvents', 'connection']
 
@@ -35,7 +46,7 @@ export const inject = ['slots', 'locale', 'conversationEvents', 'connection']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const connection = ctx.get('connection') as ConnectionHandle
+  const connection = ctx.get('connection') as unknown as ConnectionHandle
   ctx.conversationEvents.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, en), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
@@ -44,8 +55,14 @@ export function apply(ctx: ClientContext): void {
       name: 'conversation.chat.turnTail',
       select: selectProducedFiles,
       locale: NS,
-      inject: () => ({
+      inject: sessionId => ({
         isLoopback: connection.isLoopback,
+        loadPreview: async (path: string, signal: AbortSignal) => {
+          const result = await connection.rpc.call('/file-preview', 'read', { sessionId, path }, signal)
+          if (!result.ok) throw new Error(result.error.message)
+          const value = previewResponse.parse(result.value)
+          return { bytes: Uint8Array.from(atob(value.base64), char => char.charCodeAt(0)), limits: value.limits }
+        },
         hooks: { hostDescription: connection.hostDescription },
       }),
     }, ProducedFiles),

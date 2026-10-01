@@ -38,6 +38,7 @@ import type {
 const SHARED_VIEW_PROPERTIES = {
   id: { type: 'string', required: true },
   prompt: { type: 'string', required: true },
+  mode: { type: 'string', const: 'task' },
   scheduledAt: { type: 'string', required: true },
   state: { type: 'string', required: true, enum: ['scheduled', 'overdue'] },
   deliveryMode: { type: 'string', required: true, const: 'session-local' },
@@ -145,7 +146,9 @@ const DELETE_OUTPUT_SCHEMA = {
 } as const
 
 const CREATE_DESCRIPTION =
-  'Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: '
+  'Create one reminder or scheduled task in the current session. '
+  + 'Use mode task only when the user explicitly asks to execute work later; '
+  + 'otherwise omit mode to present a reminder. Supply a non-empty prompt and exactly one selector: '
   + 'a positive safe-integer after_seconds delay, at as a strict offset date-time or local '
   + `date/time object, or safe-integer every_seconds of at least ${MIN_EVERY_INTERVAL_SECONDS}. `
   + 'Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest '
@@ -252,12 +255,14 @@ async function preflight(
 /** Validate the v1 selector constraints that the open parameter root cannot express. */
 function validateCreateArgs(args: {
   prompt: string
+  mode?: string
   after_seconds?: number
   at?: AtInput
   every_seconds?: number
 }): ScheduleToolError | undefined {
   const keys = Object.keys(args as unknown as Record<string, unknown>)
   if (keys.some(key => key !== 'prompt'
+    && key !== 'mode'
     && key !== 'after_seconds'
     && key !== 'at'
     && key !== 'every_seconds')
@@ -321,7 +326,12 @@ export function registerScheduleTools(
         prompt: {
           type: 'string',
           required: true,
-          description: 'Reminder content to present when the target becomes due.',
+          description: 'Reminder content, or user-authorized instructions when mode is task.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['task'],
+          description: 'Execute the saved instruction when due. Only set for explicitly requested scheduled work.',
         },
         after_seconds: {
           type: 'number',
@@ -376,6 +386,7 @@ export function registerScheduleTools(
           } catch (error: unknown) {
             return error instanceof ScheduleInputError ? inputError(error) : internalError()
           }
+          if (args.mode === 'task') record = Object.freeze({ ...record, mode: 'task' })
           const cancelledBeforeAppend = cancellationPlaceholder(exec.signal)
           if (cancelledBeforeAppend !== undefined) return cancelledBeforeAppend
           try {
@@ -393,7 +404,7 @@ export function registerScheduleTools(
           return scheduleView(record, Date.now())
         })
       },
-      presentCall: args => present('Create reminder', 'other', args.prompt),
+      presentCall: args => present(args.mode === 'task' ? 'Schedule task' : 'Create reminder', 'other', args.prompt),
     })))
 
     disposers.push(toolCtx.tools.register(defineTool({

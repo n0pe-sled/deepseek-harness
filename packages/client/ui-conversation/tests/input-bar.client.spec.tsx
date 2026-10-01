@@ -1523,9 +1523,50 @@ describe('command launcher chrome and control seats', () => {
     const launcher = view.getByLabelText(en['input.commands'])
     expect(launcher.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(launcher)
+    fireEvent.click(view.getByRole('menuitem', { name: en['input.runCommands'] }))
     expect(toggleCommandMenu).toHaveBeenCalledExactlyOnceWith({ start: 2, end: 7 })
     act(() => { menuLauncher.set('command') })
     expect(launcher.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('dismisses the command list before opening composer actions', () => {
+    const toggleCommandMenu = vi.fn()
+    const { view } = bench({ commandMenuOpen: true, toggleCommandMenu })
+    fireEvent.click(view.getByLabelText(en['input.commands']))
+    expect(toggleCommandMenu).toHaveBeenCalledOnce()
+    expect(view.getByRole('menuitem', { name: en['input.runCommands'] })).toBeTruthy()
+  })
+
+  it('moves through composer actions with arrow keys and restores focus on Escape', () => {
+    const { view, textarea } = bench()
+    fireEvent.click(view.getByLabelText(en['input.commands']))
+    const files = view.getByRole('menuitem', { name: en['input.addFiles'] })
+    expect(document.activeElement).toBe(files)
+    fireEvent.keyDown(files, { key: 'End' })
+    const commands = view.getByRole('menuitem', { name: en['input.runCommands'] })
+    expect(document.activeElement).toBe(commands)
+    fireEvent.keyDown(commands, { key: 'Escape' })
+    expect(view.queryByRole('menuitem')).toBeNull()
+    expect(document.activeElement).toBe(textarea)
+  })
+
+  it('opens workspace references at the selection while preserving surrounding text', () => {
+    const { view, textarea, shell } = bench({ draft: 'Review this please' })
+    textarea.setSelectionRange(7, 11)
+    fireEvent.click(view.getByLabelText(en['input.commands']))
+    fireEvent.click(view.getByRole('menuitem', { name: en['input.addFiles'] }))
+    expect(shell.snapshot.draft).toBe('Review @ please')
+    expect(document.activeElement).toBe(textarea)
+  })
+
+  it('passes selected images through existing attachment validation and clears the picker', () => {
+    const addImages = vi.fn(() => null)
+    const { view } = bench({ addImages })
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' })
+    const picker = view.getByLabelText(en['input.addImages']) as HTMLInputElement
+    fireEvent.change(picker, { target: { files: [file] } })
+    expect(addImages).toHaveBeenCalledExactlyOnceWith([file])
+    expect(picker.value).toBe('')
   })
 
   it('the Access chip renders the projection value and submits a non-Full-access pick directly', async () => {

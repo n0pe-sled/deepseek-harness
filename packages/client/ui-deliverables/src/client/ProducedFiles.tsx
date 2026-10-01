@@ -11,6 +11,8 @@ import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation
 import { basename } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import css from './ProducedFiles.module.css'
+import type { PreviewFile } from './preview-content.ts'
+import { FilePreview } from './FilePreview.tsx'
 
 /** At most six chips compete for the one-line summary; every other path stays counted. */
 const SHOWN_LIMIT = 6
@@ -50,6 +52,8 @@ export function fitProducedFiles(
 export interface ProducedFilesInjected {
   /** Whether the browser itself is connected over loopback. */
   isLoopback: boolean
+  /** Read a workspace file through the current transport. */
+  loadPreview?: (path: string, signal: AbortSignal) => Promise<PreviewFile>
   hooks: {
     /** Current generation's Host description, bound by the slot renderer. */
     hostDescription: HostDescriptionSource
@@ -71,8 +75,9 @@ function moreLabel(t: ProducedFilesProps['t'], count: number): string {
  * @returns The produced-files row.
  */
 export function ProducedFiles({
-  matched: paths, openFile, isLoopback, useHostDescription, t,
+  matched: paths, openFile, isLoopback, useHostDescription, t, loadPreview,
 }: ProducedFilesProps) {
+  const [preview, setPreview] = useState<string | null>(null)
   const hostCanOpenPath = useHostDescription(description => description?.canOpenPath === true)
   const canOpenPath = isLoopback && hostCanOpenPath
   const limit = Math.min(paths.length, SHOWN_LIMIT)
@@ -114,6 +119,9 @@ export function ProducedFiles({
   const hidden = paths.length - shown.length
   return (
     <div className={css.root}>
+      {preview !== null && loadPreview !== undefined && (
+        <FilePreview path={preview} load={loadPreview} t={t} close={() => { setPreview(null) }} openFile={openFile} />
+      )}
       <span className={css.label}>{t('produced.label')}</span>
       <div ref={rowRef} className={css.row} data-produced-files-row>
         {shown.map(path => (
@@ -125,7 +133,7 @@ export function ProducedFiles({
             // that share a basename; the chip itself stays short.
             title={path}
             aria-label={t('produced.open', { name: path })}
-            onClick={() => { openFile(path) }}
+            onClick={() => { if (loadPreview === undefined) openFile(path); else setPreview(path) }}
           >
             {basename(path)}
           </button>

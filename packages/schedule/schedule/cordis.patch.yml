@@ -1,0 +1,8 @@
+# Optional scheduled tasks for the Web profile and its desktop host.
+- insert:
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+    - id: ui-schedule
+      name: '@deepseek-ai/dsh-client-ui-schedule'

@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPlusOutline16, IconWarningOutline16, Menu, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -88,6 +88,13 @@ export function InputBar({
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const actionsRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (actionsOpen) actionsRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }, [actionsOpen])
+  useEffect(() => { setActionsOpen(false) }, [sessionId])
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const subagent = useSession(s => s.subagent) ?? null
@@ -535,6 +542,9 @@ export function InputBar({
   }, [addImages, attachments, imageLimits, showToast, t])
 
   const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  useEffect(() => {
+    if (locked || machineBusy) setActionsOpen(false)
+  }, [locked, machineBusy])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -768,21 +778,87 @@ export function InputBar({
           </div>
         </div>
         <div className={css.row}>
-          <div className={css.tools}>
-            <Tooltip label={t('input.commands')} side="top" delayMs={500}>
-              <button
-                type="button"
-                className={css.add}
-                aria-label={t('input.commands')}
-                aria-haspopup="listbox"
-                aria-expanded={commandMenuOpen}
-                disabled={locked || toggleCommandMenu === undefined}
-                onMouseDown={keepFocus}
-                onClick={onToggleCommandMenu}
-              >
-                <IconPlusOutline16 size={14} />
-              </button>
-            </Tooltip>
+          <div
+            ref={actionsRef}
+            className={css.tools}
+            onKeyDown={(event) => {
+              if (actionsOpen && event.key === 'Escape') {
+                setActionsOpen(false)
+                inputRef.current?.focus({ preventScroll: true })
+                return
+              }
+              if (!actionsOpen || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+              const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')]
+              if (items.length === 0) return
+              event.preventDefault()
+              const current = items.findIndex(item => item === document.activeElement)
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+              items[next]?.focus()
+            }}
+          >
+            <Menu
+              open={actionsOpen}
+              side="top"
+              items={[
+                { id: 'files', label: t('input.addFiles'), disabled: locked || machineBusy || toggleCommandMenu === undefined },
+                { id: 'images', label: t('input.addImages'), disabled: !canAcceptDrop },
+                { type: 'separator', id: 'separator' },
+                { id: 'commands', label: t('input.runCommands'), disabled: locked || machineBusy || toggleCommandMenu === undefined },
+              ]}
+              onClose={() => { setActionsOpen(false) }}
+              onSelect={(id) => {
+                setActionsOpen(false)
+                if (id === 'images') { fileInputRef.current?.click(); return }
+                const el = inputRef.current
+                if (el === null || keyboard === undefined) return
+                el.focus({ preventScroll: true })
+                if (id === 'commands') { onToggleCommandMenu(); return }
+                const selection = selectionOf(el)
+                const prefix = draft.slice(0, selection.start)
+                const inserted = `${prefix !== '' && !/\s$/u.test(prefix) ? ' ' : ''}@`
+                keyboard.setDraft(prefix + inserted + draft.slice(selection.end), {
+                  ...selection, insertedLength: inserted.length,
+                })
+                const caret = selection.start + inserted.length
+                restoreCaret(el, caret)
+                keyboard.track(keyboard.snapshot.draft, caret)
+              }}
+              anchor={
+                <Tooltip label={t('input.commands')} side="top" delayMs={500}>
+                  <button
+                    type="button"
+                    className={css.add}
+                    aria-label={t('input.commands')}
+                    aria-haspopup="menu"
+                    aria-expanded={actionsOpen || commandMenuOpen}
+                    disabled={locked || machineBusy || toggleCommandMenu === undefined}
+                    onMouseDown={keepFocus}
+                    onClick={() => {
+                      if (commandMenuOpen) onToggleCommandMenu()
+                      setActionsOpen(value => !value)
+                    }}
+                  >
+                    <IconPlusOutline16 size={14} />
+                  </button>
+                </Tooltip>
+              }
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              hidden
+              multiple
+              accept={imageLimits?.mediaTypes.join(',') ?? 'image/png,image/jpeg,image/webp,image/gif'}
+              aria-label={t('input.addImages')}
+              disabled={!canAcceptDrop}
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                event.target.value = ''
+                if (canAcceptDrop) intakeImages(files)
+                inputRef.current?.focus({ preventScroll: true })
+              }}
+            />
             <div className={css.modes}>
               {accessSelect}
               {renderSlot('conversation.input.plan', { locked })}

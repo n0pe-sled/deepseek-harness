@@ -571,3 +571,23 @@ describe('Schedule persistence failure boundaries', () => {
     stop()
   })
 })
+
+describe('scheduled task creation', () => {
+  it('persists explicit task mode and returns it in the list', async () => {
+    const test = await harness()
+    const created = value(await execute(test, 'schedule_create', {
+      prompt: 'Read the deployment log', after_seconds: 30, mode: 'task',
+    }))
+    expect(created).toMatchObject({ mode: 'task', prompt: 'Read the deployment log', deliveryMode: 'session-local' })
+    expect(value(await execute(test, 'schedule_list', {}))).toEqual([created])
+    expect(test.agent.session.events.find(event => event.type === 'schedule/change')?.data).toMatchObject({
+      schedule: { mode: 'task' },
+    })
+  })
+
+  it('rejects an unsupported mode at the tool JSON boundary', async () => {
+    const test = await harness()
+    expect((await execute(test, 'schedule_create', { prompt: 'Read logs', after_seconds: 30, mode: 'arbitrary' })).isError).toBe(true)
+    expect(test.agent.session.events.some(event => event.type === 'schedule/change')).toBe(false)
+  })
+})

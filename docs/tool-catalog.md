@@ -1067,7 +1067,7 @@ create, edit, pause, and resume require direct-human root authority; complete an
 
 ### `schedule_create`
 
-Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: the reminder runs on time only while this session is live and otherwise becomes overdue until the session is resumed.
+Create one reminder or scheduled task in the current session. Use mode task only when the user explicitly asks to execute work later; otherwise omit mode to present a reminder. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: the reminder runs on time only while this session is live and otherwise becomes overdue until the session is resumed.
 
 ```json
 {
@@ -1075,7 +1075,14 @@ Create one reminder in the current session. Supply a non-empty prompt and exactl
   "properties": {
     "prompt": {
       "type": "string",
-      "description": "Reminder content to present when the target becomes due."
+      "description": "Reminder content, or user-authorized instructions when mode is task."
+    },
+    "mode": {
+      "type": "string",
+      "description": "Execute the saved instruction when due. Only set for explicitly requested scheduled work.",
+      "enum": [
+        "task"
+      ]
     },
     "after_seconds": {
       "type": "number",
