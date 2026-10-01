@@ -11,7 +11,7 @@
  *                     in flight in that tree
  *   seed-home/        a $DSH_HOME whose `sandbox` profile has every plugin
  *                     installed; the image copies this to /data on first boot
- *   meta.json         { version, revision } of the staged closure, for tags
+ *   meta.json         release, harness, and plugin revisions for image tags
  *
  * Closure staging is delegated to the desktop app's scripts/stage-harness.mjs,
  * which already knows how to produce a target-clean Linux closure (its
@@ -30,6 +30,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { copyRuntimeDependencies } from './runtime-dependencies.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -98,13 +99,8 @@ const harnessCli = join(harness, 'apps', 'cli', 'lib', 'bin.js')
 if (!existsSync(harnessCli)) {
   const lockfile = join(harness, 'pnpm-lock.yaml')
   console.log('prepare-context: harness is unbuilt — installing the workspace')
-  try {
-    run('pnpm', ['install', ...(existsSync(lockfile) ? ['--frozen-lockfile'] : [])], { cwd: harness })
-  } catch {
-    // A drifted lockfile should not decide whether an image can be built.
-    console.log('prepare-context: frozen install failed; retrying with a resolved lockfile')
-    run('pnpm', ['install'], { cwd: harness })
-  }
+  if (!existsSync(lockfile)) throw new Error('Harness lockfile is required')
+  run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: harness })
 }
 for (const [index, { arch, triple }] of TARGETS.entries()) {
   const buildFirst = index === 0 && !existsSync(harnessCli)
@@ -139,7 +135,7 @@ if (plugins.length === 0) throw new Error(`no plugin packages found under ${plug
 
 const copyFilter = (src) => {
   const base = basename(src)
-  return base !== 'node_modules' && base !== 'lib'
+  return base !== 'node_modules' && base !== 'lib' && base !== '.git'
 }
 
 /**
@@ -153,7 +149,11 @@ const copyFilter = (src) => {
  * the real path in the harness checkout. Only specs that do NOT resolve where
  * they are left alone and reported.
  */
-function repointDanglingLinks(dir, harnessRoot, name) {
+async function repointDanglingLinks(dir, harnessRoot, name) {
+  const { load, dump } = await import('js-yaml')
+  const lockPath = join(dir, 'pnpm-lock.yaml')
+  if (!existsSync(lockPath)) throw new Error(`Plugin lockfile is required: ${name}`)
+  const lock = load(readFileSync(lockPath, 'utf8'))
   const pkgPath = join(dir, 'package.json')
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
   let changed = false
@@ -171,12 +171,21 @@ function repointDanglingLinks(dir, harnessRoot, name) {
       ]
       const found = candidates.find((candidate) => existsSync(candidate))
       if (found === undefined) continue
+      const locked = lock.importers?.['.']?.[section]?.[dep]
+      if (!locked || locked.specifier !== spec || locked.version !== spec) {
+        throw new Error(`Unpinned local dependency ${name}: ${dep}`)
+      }
       deps[dep] = `link:${found}`
+      locked.specifier = deps[dep]
+      locked.version = deps[dep]
       changed = true
       console.log(`  ${name}: repointed ${dep} -> ${found}`)
     }
   }
-  if (changed) writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
+  if (changed) {
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
+    writeFileSync(lockPath, dump(lock, { lineWidth: -1, noRefs: true }))
+  }
 }
 
 mkdirSync(join(out, 'plugins-src'), { recursive: true })
@@ -188,22 +197,9 @@ const built = []
 for (const { dir, name } of plugins) {
   const target = join(out, 'plugins-src', name)
   cpSync(dir, target, { recursive: true, filter: copyFilter })
-  repointDanglingLinks(target, harness, name)
+  await repointDanglingLinks(target, harness, name)
   const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
-  if (existsSync(join(target, 'pnpm-lock.yaml'))) {
-    try {
-      run('pnpm', ['install', '--frozen-lockfile'], { cwd: target })
-    } catch {
-      // A plugin being edited can have a package.json ahead of its lockfile.
-      // The copy is throwaway and the source tree is never touched, so resolve
-      // it here rather than failing the whole image — but say so loudly, since
-      // a regenerated lockfile means this plugin's versions were not pinned.
-      console.warn(`! ${name}: lockfile is out of sync with package.json — resolving fresh in the build copy only`)
-      run('pnpm', ['install', '--no-frozen-lockfile'], { cwd: target })
-    }
-  } else {
-    run('pnpm', ['install'], { cwd: target })
-  }
+  run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: target })
   if (pkg.scripts?.build === undefined) {
     built.push(name)
     continue
@@ -212,6 +208,7 @@ for (const { dir, name } of plugins) {
     run('pnpm', ['build'], { cwd: target })
     built.push(name)
   } catch (error) {
+    if (strict) throw error
     // A plugin mid-edit can fail a build-time typecheck after its bundles were
     // already emitted. Judge by artifacts, not by exit code: with lib/index.js
     // present the plugin is shippable, and refusing the whole image over
@@ -221,8 +218,6 @@ for (const { dir, name } of plugins) {
       console.warn(`! ${name}: build reported failure but lib/index.js exists — shipping produced artifacts`)
       warned.push(name)
       built.push(name)
-    } else if (strict) {
-      throw error
     } else {
       console.warn(`!! ${name}: build failed and produced no lib/index.js — EXCLUDED from this image`)
       skipped.push(name)
@@ -255,11 +250,26 @@ if (!bundles.includes('@deepseek-ai/dsh-web-app')) {
 const pluginBundles = bundles.filter((b) => b.startsWith('dsh-') && b !== '@deepseek-ai/dsh-base')
 console.log(`web profile seeded: ${String(bundles.length)} bundles, ${String(pluginBundles.length)} plugins`)
 
+// Ship only the locked portable runtime dependencies. Native peers resolve from each harness closure.
+for (const name of built) {
+  const target = join(out, 'plugins-src', name)
+  const runtime = join(out, `runtime-${name}`)
+  mkdirSync(runtime, { recursive: true })
+  copyRuntimeDependencies(target, runtime)
+  rmSync(join(target, 'node_modules'), { recursive: true, force: true })
+  cpSync(runtime, join(target, 'node_modules'), { recursive: true })
+  rmSync(runtime, { recursive: true, force: true })
+}
+
 // --- 4. Record the closure identity for image tags --------------------------
 const meta = JSON.parse(readFileSync(join(out, 'closure-amd64', 'harness-meta.json'), 'utf8'))
 writeFileSync(join(out, 'meta.json'), `${JSON.stringify({
   version: meta.version,
-  revision: meta.revision,
+  releaseVersion: JSON.parse(readFileSync(join(app, 'package.json'), 'utf8')).version,
+  revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: harness, encoding: 'utf8' }).trim(),
+  pluginRevisions: Object.fromEntries(plugins.map(({ dir, name }) => [name,
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim(),
+  ])),
   plugins: built,
   ...(warned.length > 0 ? { pluginsWithBuildWarnings: warned } : {}),
   ...(skipped.length > 0 ? { pluginsExcluded: skipped } : {}),

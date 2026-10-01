@@ -68,14 +68,13 @@ The harness tree is only read.
 
 ## CI
 
-`.github/workflows/sandbox-release.yml` at the repository root checks out the
-repository once, builds the context from that revision, and pushes multi-arch images
-tagged `latest`, `v<version>`, `<version>-<revision>`, and `sha-<short>`. The
-workflow sits at the root because the root is the only `.github/workflows/`
-directory GitHub reads, and the copy this directory used to carry sat at a path that
-never ran. A run builds the revision it checked out, so a dirty working tree never
-reaches an image. Rebuild a past revision with a `workflow_dispatch` and `ref` set
-to its full commit SHA.
+The [release workflow](../../.github/workflows/sandbox-release.yml) builds both Linux architectures from the checked-out revision and pinned plugin submodule commits. Push `v0.1.6-beta.1` from the beta branch to publish `ghcr.io/n0pe-sled/dsh-sandbox:beta`, `:v0.1.6-beta.1`, `:0.1.6-beta.1-<full-commit>`, and `:sha-<full-commit>`. Beta branch pushes alone do not build the image; tagging the release avoids duplicate builds. Stable desktop versions publish `latest` and their own version tags. Beta builds never replace `latest` or a stable version tag.
+
+`/opt/image-meta.json` records the desktop release version, harness version, full checked-out commit, and plugin commits. Manual dispatch accepts a ref or full commit SHA. Frozen installs reject dependency drift; local `link:` paths are relocated together with their lockfile entries without changing external resolutions. Release builds reject plugin build failures. The image copies locked production dependencies and performs no registry installs. Native and platform-specific plugin dependencies require per-target staging; the shared plugin payload rejects them, while native peers such as `node-pty` come from each target's harness closure.
+
+```sh
+docker run --rm -p 127.0.0.1:3080:3081 -v dsh-sandbox-beta-home:/data ghcr.io/n0pe-sled/dsh-sandbox:beta
+```
 
 ## Isolation notes
 

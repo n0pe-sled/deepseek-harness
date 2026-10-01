@@ -1,13 +1,3 @@
-# Build and publish the dsh sandbox image.
-#
-# One checkout, at the repository root: the harness workspace, the app under
-# apps/desktop and the sandbox under deploy/sandbox-image are the same
-# revision, so the closure baked into an image is always the one this run read.
-# The two cross-repository pins this workflow used to carry are gone with the
-# merge, and a pin that named a commit of this repository could not: it would
-# build the sandbox tree of one revision with the harness tree of another, and
-# the file that ran would not be the file that ran. Rebuild a past revision with
-# a workflow_dispatch and `ref` set to its full commit SHA.
 name: Release sandbox image
 
 on:
@@ -27,6 +17,10 @@ env:
   # The image build context, relative to the checkout root. The Containerfile
   # reads build/ below this directory, so it is also the buildx context.
   CONTEXT: deploy/sandbox-image
+
+concurrency:
+  group: sandbox-release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -61,8 +55,11 @@ jobs:
       # Both paths are inside the checkout the step above produced. The app moved
       # in at apps/desktop, so the staging script the context prep delegates to
       # is apps/desktop/scripts/stage-harness.mjs.
+      - name: Validate image channels
+        run: node --test "$CONTEXT/scripts/"*.test.mjs
+
       - name: Prepare build context
-        run: node "$CONTEXT/scripts/prepare-context.mjs" --harness . --app apps/desktop --out "$CONTEXT/build"
+        run: node "$CONTEXT/scripts/prepare-context.mjs" --harness . --app apps/desktop --out "$CONTEXT/build" --strict
 
       - uses: docker/setup-buildx-action@v3
 
@@ -74,12 +71,7 @@ jobs:
 
       - name: Compute image tags
         id: tags
-        run: |
-          version=$(node -p "require('./$CONTEXT/build/meta.json').version")
-          revision=$(node -p "require('./$CONTEXT/build/meta.json').revision")
-          echo "tags=${IMAGE}:latest,${IMAGE}:v${version},${IMAGE}:${version}-${revision},${IMAGE}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_SHA: ${{ github.sha }}
+        run: node "$CONTEXT/scripts/image-tags.mjs" "$CONTEXT/build/meta.json" >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@v6
         with:
@@ -99,4 +91,5 @@ jobs:
           labels: |
             org.opencontainers.image.title=dsh-sandbox
             org.opencontainers.image.description=Containerized DeepSeek Harness with the fork's plugins pre-installed
-            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.tags.outputs.revision }}

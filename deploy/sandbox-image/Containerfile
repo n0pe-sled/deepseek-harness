@@ -22,6 +22,7 @@ ARG TARGETARCH
 
 COPY build/closure-${TARGETARCH}/ /opt/harness/
 COPY build/seed-home/ /opt/seed-home/
+COPY build/meta.json /opt/image-meta.json
 COPY relay.cjs /opt/relay.cjs
 COPY entrypoint.sh /entrypoint.sh
 
@@ -37,19 +38,9 @@ COPY entrypoint.sh /entrypoint.sh
 #      levels up from which is / — so /plugins-src must exist as a path. The
 #      symlink below is what makes that land back inside the harness tree.
 #
-# Their own third-party runtime deps (zod, monaco-editor, @xterm/*, js-yaml)
-# are installed here: --omit=dev skips the devDependencies whose `link:` specs
-# point at the build machine, and --legacy-peer-deps keeps npm from fetching
-# `@deepseek-ai/*` peers from the registry (the closure provides those).
+# The context contains frozen production dependencies; native peers come from the target closure.
 COPY build/plugins-src/ /opt/harness/plugins-src/
-RUN ln -s /opt/harness/plugins-src /plugins-src \
-  && for p in /opt/harness/plugins-src/*/; do \
-       if [ -f "$p/package.json" ]; then \
-         ( cd "$p" && npm install --omit=dev --no-package-lock --ignore-scripts \
-             --legacy-peer-deps --no-audit --no-fund >/dev/null 2>&1 ) \
-           || echo "warn: third-party deps for $p did not install"; \
-       fi; \
-     done
+RUN ln -s /opt/harness/plugins-src /plugins-src
 
 RUN chmod +x /entrypoint.sh /opt/relay.cjs \
   && mkdir -p /data \
