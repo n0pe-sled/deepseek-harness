@@ -17,7 +17,7 @@ import {
   parseDockerPort,
   resolveSandboxOptions,
 } from '../../src/main/instances/sandbox.ts'
-import { DEFAULT_SANDBOX_IMAGE, SANDBOX_RELAY_PORT } from '../../src/shared/instance.ts'
+import { DEFAULT_SANDBOX_IMAGE, SANDBOX_RELAY_PORT, sandboxImageForVersion } from '../../src/shared/instance.ts'
 
 const BASE = resolveSandboxOptions(undefined)
 
@@ -218,5 +218,15 @@ describe('noRuntimeMessage', () => {
     expect(missing).toContain('no container runtime found')
     expect(missing).toContain('/usr/local/bin')
     expect(missing).toContain('Install one to use the sandbox')
+  })
+})
+
+describe('sandbox release channels', () => {
+  it('tracks beta images only for prerelease desktop versions', () => {
+    expect(sandboxImageForVersion('0.1.6-beta.1')).toBe('ghcr.io/n0pe-sled/dsh-sandbox:beta')
+    expect(sandboxImageForVersion('0.1.6-rc.1')).toBe('ghcr.io/n0pe-sled/dsh-sandbox:beta')
+    expect(sandboxImageForVersion('0.1.6')).toBe('ghcr.io/n0pe-sled/dsh-sandbox:latest')
+    expect(sandboxImageForVersion('0.1.6+beta-build')).toBe('ghcr.io/n0pe-sled/dsh-sandbox:latest')
+    expect(() => sandboxImageForVersion('invalid')).toThrow('Invalid desktop version')
   })
 })

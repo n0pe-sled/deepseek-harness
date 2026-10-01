@@ -181,7 +181,7 @@ function isTypesPackage(name: string, dir: string | undefined): boolean {
   if (name.startsWith('@types/')) return true
   if (dir === undefined) return false
   const manifest = readManifest(dir)
-  const hasRuntimeEntry = ['main', 'module', 'exports'].some((field) => manifest?.[field] !== undefined)
+  const hasRuntimeEntry = ['main', 'module', 'exports'].some((field) => manifest?.[field] !== undefined && manifest[field] !== '')
   if (hasRuntimeEntry) return false
   return existsSync(join(dir, 'index.d.ts'))
 }

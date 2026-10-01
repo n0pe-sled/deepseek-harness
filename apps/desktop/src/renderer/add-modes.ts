@@ -4,12 +4,13 @@
  * the DOM the fields render into, and the submit wiring live here so both pages
  * send identical requests.
  */
+import { DEFAULT_SANDBOX_IMAGE } from '../shared/instance.ts'
 import type { InstanceView } from '../shared/instance.ts'
 import type { AddKind } from '../shared/ipc.ts'
 import type { DshManagerApi } from '../shared/manager.ts'
 
 /** Shown as the image field's placeholder; the default image resolves in main. */
-export const DEFAULT_IMAGE_PLACEHOLDER = 'ghcr.io/n0pe-sled/dsh-sandbox:latest'
+export const DEFAULT_IMAGE_PLACEHOLDER = DEFAULT_SANDBOX_IMAGE
 
 export interface FieldSpec {
   key: string

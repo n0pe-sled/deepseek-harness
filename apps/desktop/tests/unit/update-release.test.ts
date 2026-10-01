@@ -16,6 +16,12 @@ function release(tag: string, extra: Partial<Release> = {}): Release {
 }
 
 describe('selectRelease', () => {
+  it('does not downgrade a beta desktop and offers its eventual stable release', () => {
+    expect(selectRelease([release('0.1.5')], '0.1.6-beta.1').release).toBeUndefined()
+    expect(selectRelease([release('0.1.6')], '0.1.6-beta.1').release?.tag).toBe('0.1.6')
+    expect(selectRelease([release('0.1.6-beta.2', { prerelease: true })], '0.1.5').release).toBeUndefined()
+  })
+
   it('offers the newest release above the running version', () => {
     const outcome = selectRelease(
       [release('v0.1.5'), release('v0.1.4'), release('v0.1.3')],

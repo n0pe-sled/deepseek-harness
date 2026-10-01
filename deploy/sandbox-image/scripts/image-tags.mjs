@@ -24,6 +24,9 @@ export function imageTags(image, version, revision) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const meta = JSON.parse(readFileSync(process.argv[2], 'utf8'))
+  if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `v${meta.releaseVersion}`) {
+    throw new Error(`Release tag ${process.env.GITHUB_REF_NAME} does not match desktop version ${meta.releaseVersion}`)
+  }
   console.log(`tags=${imageTags(process.env.IMAGE, meta.releaseVersion, meta.revision).join(',')}`)
   console.log(`version=${meta.releaseVersion}`)
   console.log(`revision=${meta.revision}`)

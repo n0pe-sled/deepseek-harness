@@ -41,6 +41,8 @@ Why a loopback host? The harness client gates every settings surface (Models, Pl
 
 Why is the instance manager a window and not an overlay? The top bar is a 40px `WebContentsView`, so a dropdown would be clipped by the view it is drawn in. It is a child window the way the add form and the connection log are, and it is not `modal: true` for the same reason the log window is not: launching a provisioned remote takes tens of seconds, and the user watches it from the window behind.
 
+The default sandbox image follows the desktop version: prereleases use `ghcr.io/n0pe-sled/dsh-sandbox:beta`; stable releases use `:latest`. An explicitly configured image remains unchanged. The updater keeps its stable-release feed, rejects downgrades from a beta build, and can offer the corresponding stable release.
+
 ## Development
 
 ```bash
@@ -52,6 +54,10 @@ pnpm dist       # electron-builder dmg → release/ (uses the already-staged clo
 ```
 
 ### The bundled harness
+
+Beta builds use a prerelease version such as `0.1.6-beta.1` and publish from a matching `v0.1.6-beta.1` tag on the `beta` branch. GitHub marks these releases as prereleases and keeps the latest stable release unchanged.
+
+Staging uses the reviewed frozen lockfile with lifecycle scripts disabled. Cross-target installs use the same frozen lockfile and disable lifecycle scripts while selecting native packages for the host and target architectures. It resolves scoped packages and npm aliases from the checkout’s installed pnpm store; declaration-only dependencies with an empty `main` field require no runtime entry.
 
 A packaged build carries its own harness, so a user can copy the `.dmg` into
 `/Applications` and run a local instance with **no Node install and no `dsh` on
@@ -202,7 +208,7 @@ xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"
 
 The app updates itself from this repository's GitHub Releases. **Check for Updates…** (⌘U) in the app menu runs a check on demand, and one check runs five seconds after launch. The launch check reports nothing while the running version is current, and a check that cannot reach GitHub stays quiet rather than raising a dialog about a network blip. When it finds a newer release it adds an update button to the session bar and nothing else, because it does not open the window itself; the button and the menu item are the two ways into the update window. `DSH_UPDATE_AUTOSTART=0` turns the launch check off for a run that must not reach GitHub, and `DSH_UPDATE_REPO` points the check at another repository. An unpackaged development build reports that it cannot update itself instead of offering an install it cannot perform.
 
-The check compares the running app version against each release tag. A tag that is not three numeric parts is skipped rather than reported as older, so an unexpected tag cannot hide a real release, and a build ahead of every published release reports that it is up to date. A version the user skips is not offered again until something strictly newer appears. No release is published yet, so the report a fresh install sees is the empty-feed one.
+The check orders semantic versions and skips unreadable release tags. Automatic update offers exclude prereleases; install beta builds from their GitHub release pages. A beta build is not downgraded to an older stable version, but can update to a newer stable release. A version the user skips is not offered again until something strictly newer appears.
 
 The repository is public, so the check reads a release with no credential at all, and a machine with no `gh` and no token can still update. When a credential is present the check takes `GH_TOKEN`, else `GITHUB_TOKEN`, else the token `gh auth token` prints from whichever `gh` binary it can find, which is what a private fork mirroring this app needs. The app writes no token to disk, keeps the token out of its log and out of every message it shows, and reports a missing credential when a private feed answers 404.
 
@@ -263,4 +269,3 @@ The updater logs to `~/Library/Logs/DSH Desktop/update.log`, and the update wind
   `files` field. `native/landlock-run` is the sharp edge here: it declares a
   nested workspace, is excluded from the build globs, and is not rebuilt by
   `--build`, so its `lib/` exists only in a checkout someone has built by hand.
-

@@ -9,10 +9,9 @@
  * from the npm registry: the shipped harness must be the same bytes the
  * developer runs locally, not whatever `latest` happens to point at.
  *
- * The closure comes from `pnpm deploy` with the harness repo's own staging
- * flags (scripts/build-exe-for-python-sdk.ts uses the same recipe):
- * production-only, hoisted node linker, workspace packages linked rather than
- * fetched. Two post-steps then make the tree shippable:
+ * The closure comes from frozen-lockfile `pnpm deploy`: production-only,
+ * lifecycle scripts disabled, a hoisted node linker, and workspace packages
+ * linked rather than fetched. Two post-steps then make the tree shippable:
  *
  *   1. `pnpm deploy` copies each package through its publish `files` field, so
  *      build outputs absent from `files` (the CLI's built `lib/`) do not
@@ -446,7 +445,7 @@ function readManifestName(dir) {
  * Flatten the closure into one root `node_modules` holding every package the
  * product actually needs.
  *
- * `pnpm deploy --legacy` leaves packages nested inside another's `node_modules`
+ * Deployments can leave packages nested inside another's `node_modules`
  * where they cannot see siblings that exist only at the closure root, because
  * Node resolves imports by walking up from the importing file. The shipped app
  * then dies at boot with `Cannot find package '@deepseek-ai/cordis-plugin-group'`
@@ -471,7 +470,7 @@ function flattenClosure(workspace, target, rootManifest) {
   // Peers count too, and for the workspace packages they are the whole point:
   // every `@deepseek-ai/dsh-*` package declares its siblings as
   // `workspace:^` peers, and the runtime imports them at load time. Only peers
-  // whose specifier is resolvable are queued — an optional peer such as the
+  // whose specifier is resolvable are copied — an optional peer such as the
   // `bufferutil` that `ws` lists is deliberately not installed.
   const declaredNames = (manifest) => [
     ...Object.keys(manifest?.dependencies ?? {}),
@@ -534,7 +533,9 @@ function readManifest(dir) {
  */
 function resolvePackageSource(workspace, store, name) {
   if (existsSync(store)) {
-    const wanted = name.startsWith('@') ? name.slice(1).replace('/', '+') : name
+    const installed = join(store, 'node_modules', ...name.split('/'))
+    if (readManifest(installed) !== undefined) return realpathSync(installed)
+    const wanted = name.replace('/', '+')
     for (const entry of readdirSync(store)) {
       if (!entry.startsWith(`${wanted}@`)) continue
       const candidate = join(store, entry, 'node_modules', ...name.split('/'))
@@ -703,18 +704,23 @@ async function main() {
     const seeded = copyBuildOutputs(workspace, worktree)
     console.log(`stage-harness: seeded ${String(seeded)} build output(s) from ${workspace}`)
     console.log(`stage-harness: installing target native packages (${formatTarget(host)} + ${formatTarget(target)})`)
-    run('pnpm', ['install', '--no-frozen-lockfile'], worktree)
+    run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], worktree)
   }
 
+  // pnpm deploy writes its production options into the source workspace's
+  // deps-status cache; retain the development installation's configuration.
+  const workspaceStatePath = join(deployWorkspace, 'node_modules', '.pnpm-workspace-state-v1.json')
+  const workspaceState = existsSync(workspaceStatePath) ? readFileSync(workspaceStatePath) : undefined
   try {
     console.log(`stage-harness: pnpm deploy ${DEPLOY_FILTER} -> ${scratch}`)
     rmSync(scratch, { recursive: true, force: true })
     run('pnpm', [
       '--filter', DEPLOY_FILTER, 'deploy',
-      '--legacy',
       '--prod',
+      '--frozen-lockfile',
+      '--ignore-scripts',
+      '--config.inject-workspace-packages=true',
       '--config.node-linker=hoisted',
-      '--config.auto-install-peers=false',
       '--config.link-workspace-packages=true',
       scratch,
     ], deployWorkspace)
@@ -799,6 +805,8 @@ async function main() {
     console.log(`stage-harness: ${DEPLOY_FILTER}@${String(deployed.version)} (${revision}) staged at ${relative} for ${formatTarget(target)}`)
     console.log(`stage-harness: ${mb(directorySize(output))} on disk; web UI present, spawn-helper ${helperPresent ? 'present and executable' : 'absent (not needed on this target)'}`)
   } finally {
+    if (workspaceState === undefined) rmSync(workspaceStatePath, { force: true })
+    else writeFileSync(workspaceStatePath, workspaceState)
     if (!opts.keepStage) rmSync(scratch, { recursive: true, force: true })
     if (worktree !== undefined && !opts.keepWorktree) removeTargetWorktree(workspace, worktree)
   }

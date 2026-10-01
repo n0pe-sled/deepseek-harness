@@ -139,6 +139,13 @@ describe('findUnresolvedDependencies', () => {
     expect(findUnresolvedDependencies(root)).toHaveLength(0)
   })
 
+  it('accepts declaration-only dependencies with an empty main field', () => {
+    const root = closure()
+    addPackage(root, 'pkg', { name: 'pkg', dependencies: { csstype: '^3.2.3' } })
+    addPackage(root, 'csstype', { name: 'csstype', main: '', types: 'index.d.ts' }, { 'index.d.ts': '' })
+    expect(findUnresolvedDependencies(root)).toEqual([])
+  })
+
   it('ignores an installed .d.ts-only package such as undici-types', () => {
     const root = closure()
     addPackage(root, 'pkg', { name: 'pkg', dependencies: { 'undici-types': '^7.0.0' } })

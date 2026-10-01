@@ -3,6 +3,9 @@
  * InstanceConfig is what we persist; InstanceView is what we hand the renderer.
  */
 
+import desktopPackage from '../../package.json' with { type: 'json' }
+import { parseVersion } from './update.ts'
+
 export type InstanceKind = 'local' | 'ssh' | 'raw'
 
 /** Remote dsh reachable through an SSH local-port forward (the recommended remote path). */
@@ -88,8 +91,19 @@ export interface SandboxOptions {
   outboundNetwork?: boolean
 }
 
-/** The default image: the fork's closure + all plugins, published by CI. */
-export const DEFAULT_SANDBOX_IMAGE = 'ghcr.io/n0pe-sled/dsh-sandbox:latest'
+/**
+ * Select the published sandbox channel for a desktop version.
+ * @param version - Desktop package semantic version.
+ * @returns Beta for prereleases; latest for stable releases.
+ */
+export function sandboxImageForVersion(version: string): string {
+  const parsed = parseVersion(version)
+  if (parsed === undefined) throw new Error(`Invalid desktop version: ${version}`)
+  return `ghcr.io/n0pe-sled/dsh-sandbox:${parsed.prerelease.length > 0 ? 'beta' : 'latest'}`
+}
+
+/** The fork's closure and plugins, using this desktop release's channel. */
+export const DEFAULT_SANDBOX_IMAGE = sandboxImageForVersion(desktopPackage.version)
 
 /** The relay port inside the container; the harness stays on container loopback. */
 export const SANDBOX_RELAY_PORT = 3081

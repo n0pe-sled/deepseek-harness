@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop",
-  "version": "0.1.5",
+  "version": "0.1.6-beta.1",
   "description": "macOS desktop shell for local and remote DeepSeek Harness (dsh) instances",
   "main": "out/main/index.js",
   "type": "module",
