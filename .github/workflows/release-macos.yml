@@ -175,12 +175,25 @@ jobs:
           fi
           # --publish never: electron-builder auto-enables publishing on a v* tag,
           # and the release is published by softprops/action-gh-release below.
-          # osx-sign scans binary candidates concurrently across every staged closure.
-          # Reserve descriptors for all payload files plus Electron and packaging work.
+          #
+          # @electron/osx-sign walks the whole .app with unbounded concurrency and
+          # opens one descriptor per candidate file, so the bundled Linux closures
+          # push the count past the per-process ceiling. Raising the shell's soft
+          # limit alone is not enough: kern.maxfilesperproc starts at 61440 and caps
+          # it regardless of the soft limit, which is why the first attempt failed
+          # at a limit of 111854. Raise both kernel ceilings, then size the soft
+          # limit at two descriptors per staged file plus Electron's own files,
+          # leaving the hard limit as the final authority.
+          sudo sysctl -w kern.maxfiles=1048576 >/dev/null
+          sudo sysctl -w kern.maxfilesperproc=524288 >/dev/null
           signing_files=$(find resources -type f | wc -l)
-          signing_limit=$((signing_files + 16384))
+          signing_limit=$((signing_files * 2 + 16384))
+          hard_limit=$(ulimit -H -n)
+          if [ "$hard_limit" != "unlimited" ] && [ "$signing_limit" -gt "$hard_limit" ]; then
+            signing_limit=$hard_limit
+          fi
           ulimit -S -n "$signing_limit"
-          echo "signing descriptor limit: $(ulimit -S -n); staged files: $signing_files"
+          echo "signing descriptor limit: $(ulimit -S -n); hard limit: $hard_limit; staged files: $signing_files"
           pnpm exec electron-builder --mac dmg --publish never --${{ inputs.arch || 'arm64' }}
 
       # electron-builder notarizes the .app and the pkg target, but not the dmg
