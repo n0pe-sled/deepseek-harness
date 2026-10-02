@@ -1,6 +1,8 @@
 ---
 name: trufflehog-pre-push
 description: Scan a local git project for secrets with TruffleHog running in Docker before pushing to a remote — the filesystem and history scan commands, exit-code gating, path exclusions, how to read verified vs unverified results, and the caveat that pushed secrets stay in history
+disable-model-invocation: true
+user-invocable: false
 ---
 
 # Scan a git project for secrets with TruffleHog (Docker) before pushing

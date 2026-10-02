@@ -115,6 +115,9 @@ describe('HarnessSdkJsonRpcServer', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
     const ctx = await makeHarness(storageDir)
+    // The server mounts no adapter of its own: the surrounding composition
+    // serves the route its handshake names.
+    await ctx.plugin(LlmDeepSeek)
     try {
       const transport = new FakeTransport()
       const server = new HarnessSdkJsonRpcServer(ctx, transport)
@@ -190,13 +193,16 @@ describe('HarnessSdkJsonRpcServer', () => {
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: (id: SessionId) => liveAgents.get(String(id)) },
-      get: () => undefined,
+      get: () => ({ listProviders: () => [{ id: 'stub', name: 'Stub' }] }),
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
     const prompt = (sessionId: string, text: string) => server.prompt({
       sessionId,
       contentBlocks: [{ type: 'text', text }],
     })
+    // Creating a session needs the route the handshake names, so the prompts
+    // below are queued by a server that has completed one.
+    await server.initialize({ cwd: '.', provider: 'stub', model: 'stub-model' })
 
     expect((await prompt('main', 'first')).messageId).toBeTypeOf('string')
     expect((await prompt('main', 'overlap')).messageId).toBeTypeOf('string')
@@ -226,13 +232,14 @@ describe('HarnessSdkJsonRpcServer', () => {
         create: vi.fn(async () => handle),
         get: (id: SessionId) => (live && String(id) === 'zombie' ? agent : undefined),
       },
-      get: () => undefined,
+      get: () => ({ listProviders: () => [{ id: 'stub', name: 'Stub' }] }),
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
     const prompt = (text: string) => server.prompt({
       sessionId: 'zombie',
       contentBlocks: [{ type: 'text', text }],
     })
+    await server.initialize({ cwd: '.', provider: 'stub', model: 'stub-model' })
 
     expect((await prompt('while live')).messageId).toBeTypeOf('string')
     live = false
@@ -301,6 +308,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
     const ctx = await makeHarness(storageDir)
+    await ctx.plugin(LlmDeepSeek)
     try {
       const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
@@ -775,7 +783,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     }
   })
 
-  it('does not re-register an LLM adapter whose provider already has an owner', async () => {
+  it('accepts the provider the surrounding composition serves, and only that one', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-existing-llm-'))
     const ctx = await makeHarness(storageDir)
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -796,7 +804,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     }
   })
 
-  it('rejects a missing non-DeepSeek provider when an LLM service already exists', async () => {
+  it('rejects a provider the surrounding composition does not serve', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-new-llm-'))
     const ctx = await makeHarness(storageDir)
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -880,12 +888,16 @@ describe('HarnessSdkJsonRpcServer', () => {
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: () => undefined },
-      get: () => undefined,
+      get: () => ({ listProviders: () => [{ id: 'stub', name: 'Stub' }] }),
     } as unknown as Context
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
+      initialize(params: { cwd: string; provider: string; model: string }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<{ handle: AgentHandle }>
       shutdown(): Promise<Record<string, never>>
     }
+    // Creating a session needs the route the handshake names, so this server
+    // completes one before the creations below are coalesced.
+    await server.initialize({ cwd: '.', provider: 'stub', model: 'stub-model' })
 
     const first = server.getOrCreateSession('shared')
     const second = server.getOrCreateSession('shared')

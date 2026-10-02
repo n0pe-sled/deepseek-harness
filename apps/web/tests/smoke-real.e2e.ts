@@ -147,6 +147,9 @@ const UI_PLUGIN_DIRS = [
   'ui-model-selection', 'ui-user-questions', 'ui-trajectory', '../session-query/session-log-export',
 ]
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
+// The deployment layer that gives these scenarios a model to reach their mock
+// provider with: the shipped composition pre-installs no model provider.
+const DEEPSEEK_ROUTE_OVERLAY = fileURLToPath(new URL('./deepseek-route.overlay.yml', import.meta.url))
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
   return !existsSync(bundle) || !readFileSync(bundle, 'utf8').includes('exports.apply')
@@ -226,7 +229,11 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--no-open', '--port', '0'],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+        '--patch', DEEPSEEK_ROUTE_OVERLAY,
+        '--no-open', '--port', '0',
+      ],
       {
         cwd: workspace,
         env: {
@@ -277,13 +284,11 @@ describe('dsh web keyless CLI smoke', () => {
           "role": "user",
         }
       `)
+      // The shipped Web composition mounts no web row, so neither web tool
+      // reaches the request; a deployment adds them with its own layer.
       expect(captured.tools?.map(tool => tool.function?.name)
         .filter(name => name === 'web_search' || name === 'web_fetch'))
-        .toMatchInlineSnapshot(`
-          [
-            "web_search",
-          ]
-        `)
+        .toEqual([])
     } finally {
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
@@ -339,7 +344,11 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--no-open', '--port', '0'],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+        '--patch', DEEPSEEK_ROUTE_OVERLAY,
+        '--no-open', '--port', '0',
+      ],
       {
         cwd: workspace,
         env: {
@@ -421,7 +430,11 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--no-open', '--port', '0'],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web',
+        '--patch', DEEPSEEK_ROUTE_OVERLAY,
+        '--no-open', '--port', '0',
+      ],
       {
         cwd: workspace,
         env: {

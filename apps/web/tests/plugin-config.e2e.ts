@@ -73,11 +73,11 @@ describe('web e2e: plugin configuration section', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-plugin-config-cards'))
     const dialog = await openPlugins()
 
-    // Every card the shipped web composition exposes: the shell executor, the
-    // agent loop, and the DeepSeek search provider.
+    // Every card the shipped web composition exposes: the shell executor and
+    // the agent loop. The shipped base bundle mounts no `web` row, so the
+    // DeepSeek search provider's card is gone with it.
     await dialog.getByText('Shell', { exact: true }).waitFor({ timeout: 10_000 })
     expect(await dialog.getByText('Agent loop', { exact: true }).count()).toBe(1)
-    expect(await dialog.getByText('Web search', { exact: true }).count()).toBe(1)
     // Collapsed: a card's fields appear only once it is expanded.
     expect(await dialog.getByLabel('Command timeout (ms)').count()).toBe(0)
 

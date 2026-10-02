@@ -9,6 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import * as jsonrpc from '../src/index.ts'
 
 /**
@@ -67,6 +68,9 @@ async function mountPlugin(
   const ctx = new Context()
   await ctx.plugin(agentCore, { workspaceContext: false })
   await ctx.plugin(JsonlSessionPersistence, { root: storageDir })
+  // The server mounts no adapter of its own: this composition is the
+  // deployment layer that serves the route every handshake below names.
+  await ctx.plugin(LlmDeepSeek)
   await new Promise(resolve => setTimeout(resolve, 50))
   await options.beforeServer?.(ctx)
 

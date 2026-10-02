@@ -238,6 +238,31 @@ export function buildLaunchCommand(opts: {
   ].join('\n')
 }
 
+/**
+ * Seed the remote home from the closure's own seeder, before the harness runs.
+ *
+ * The closure carries `seed-home.mjs`, which the app also uses for a local
+ * instance, so one implementation decides whether a profile manifest may be
+ * rewritten and whether a skill entry may be replaced. It is read from the closure
+ * rather than written over ssh because it sits there whatever the shell can do, and
+ * the remote Node runtime runs it because a remote needs no Node install of its own.
+ *
+ * The home is left to the remote's own resolution: `dsh` reads `$DSH_HOME` else
+ * `$HOME/.dsh`, so `HOME` is passed to the script and the remote resolves it.
+ *
+ * @param opts - the closure directory and the executable Node runtime inside it.
+ * @returns the command a remote shell runs to seed its own home.
+ */
+export function buildSeedCommand(opts: { closureDir: string; nodePath: string }): string {
+  const node = shellQuote(opts.nodePath)
+  const script = shellQuote(`${opts.closureDir}/seed-home.mjs`)
+  return [
+    'set -e',
+    `home=\${DSH_HOME:-$HOME/.dsh}`,
+    `DSH_HOME="$home" ${node} ${script} "$home" ${shellQuote(opts.closureDir)}`,
+  ].join('; ')
+}
+
 /** Read the readiness port out of a remote log, or undefined when not yet up. */
 export function parseRemoteLogPort(logText: string): number | undefined {
   const raw = /dsh web: http:\/\/(?:127\.0\.0\.1|localhost):(\d+)/u.exec(logText)?.[1]

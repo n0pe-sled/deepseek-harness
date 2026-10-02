@@ -49,10 +49,12 @@
 import { NODE_VERSION, nodeDistribution, stageNode } from './stage-node.ts'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { findUnresolvedDependencies } from './lib/resolve-closure.ts'
 import { formatTarget, harnessCacheKey, hostTarget, packageMatchesTarget, parseTarget, prebuildDirMatchesTarget, targetsEqual } from '../src/shared/harness-target.ts'
+import { describeExclusions, discoverPlugins, discoverSkills, partitionPlugins } from '../../../scripts/plugin-roster.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** Closure staged for this machine, which is what the packaged app ships. */
@@ -66,7 +68,23 @@ const DEPLOY_FILTER = '@deepseek-ai/dsh'
 /** Workspace-relative pnpm virtual store, source for link-override packages. */
 const DEPLOY_FILTER_STORE = 'node_modules/.pnpm'
 /** Bumped when the staged layout changes, so a stale tree is never mistaken for a fresh one. */
-const LAYOUT = 3
+const LAYOUT = 4
+/**
+ * Directory inside a closure holding the fork's skills.
+ *
+ * The closure's own `skills/` is safe from Node's resolution walk (nothing
+ * imports through it) and the seed script copies out of it, so it is the one
+ * place a payload can sit without shadowing a `node_modules` package.
+ */
+const CLOSURE_SKILLS_DIR = 'skills'
+/**
+ * Seeder shipped inside every closure.
+ *
+ * The same bytes seed a local home (the app imports them) and a remote one (the
+ * launch script runs them there), and both read the roster from the closure's own
+ * version record, so the app never has to know a plugin name itself.
+ */
+const SEED_SCRIPT_NAME = 'seed-home.mjs'
 
 function parseArgs(argv) {
   const opts = { workspace: undefined, build: false, keepStage: false, target: undefined, out: undefined, keepWorktree: false }
@@ -657,6 +675,260 @@ function restoreBuildArtifacts(workspace, target) {
   return restored
 }
 
+/** Copy one plugin's source out of the checkout, without its installed or built trees. */
+function copyPluginSource(from, to) {
+  cpSync(from, to, {
+    recursive: true,
+    dereference: true,
+    filter: (path) => {
+      const base = path.slice(path.lastIndexOf(sep) + 1)
+      return base !== 'node_modules' && base !== 'lib' && base !== '.git'
+    },
+  })
+}
+
+/**
+ * Copy one built plugin into the closure, without its installed tree.
+ *
+ * Only `node_modules` is skipped: the built `lib/` is what the Loader imports,
+ * so a copy that dropped it would ship a package the Loader cannot load, and
+ * `pnpm-lock.yaml` and `pnpm-workspace.yaml` stay for provenance.
+ */
+function copyBuiltPlugin(from, to) {
+  cpSync(from, to, { recursive: true, dereference: true, filter: withoutNestedModules })
+}
+
+/**
+ * Copy one installed package, without the `node_modules` its own tree holds.
+ *
+ * A dependency's installed copy carries a nested `node_modules` for the packages
+ * only it needs. Every runtime dependency is placed at the closure root instead,
+ * where Node's upward walk finds it, and copying the nested tree would repeat the
+ * whole closure inside one package.
+ */
+function copyModulePayload(from, to) {
+  cpSync(from, to, { recursive: true, dereference: true, filter: withoutNestedModules })
+}
+
+/** Test one path inside a package payload: only a nested `node_modules` is skipped. */
+function withoutNestedModules(path) {
+  return path.slice(path.lastIndexOf(sep) + 1) !== 'node_modules'
+}
+
+
+/**
+ * Repoint the build-time `link:` specs that assume a different checkout layout.
+ *
+ * Most of this fork's plugins declare their build-time peers as
+ * `link:../deepseek-harness/…` or `link:../../packages/…`, which resolves
+ * only when the plugin directory sits beside a `deepseek-harness` checkout rather
+ * than inside one. Those specs are devDependencies (they compile the plugin and
+ * never ship; runtime peers resolve from the closure), so a copy staged elsewhere
+ * has them repointed at the real path in the checkout. A spec that already
+ * resolves is left alone.
+ *
+ * Both the manifest and the lockfile are rewritten: `pnpm install
+ * --frozen-lockfile` compares the two, and a specifier changed in one alone is a
+ * frozen-lockfile failure rather than a build.
+ */
+async function repointDanglingLinks(dir, workspace, name) {
+  const { load, dump } = await import('js-yaml')
+  const lockPath = join(dir, 'pnpm-lock.yaml')
+  if (!existsSync(lockPath)) throw new Error(`plugin ${name} has no pnpm-lock.yaml to install from`)
+  const lock = load(readFileSync(lockPath, 'utf8'))
+  const pkgPath = join(dir, 'package.json')
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+  let changed = false
+  for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    const deps = pkg[section]
+    if (deps === undefined || typeof deps !== 'object') continue
+    for (const [dep, spec] of Object.entries(deps)) {
+      if (typeof spec !== 'string' || !spec.startsWith('link:')) continue
+      if (existsSync(resolve(dir, spec.slice('link:'.length)))) continue
+      const relative = spec.slice('link:'.length)
+      const candidates = [
+        resolve(workspace, relative.replace(/^\.\.\/deepseek-harness\//u, '')),
+        resolve(workspace, relative.replace(/^\.\.\/\.\.\//u, '')),
+      ]
+      const found = candidates.find((candidate) => existsSync(candidate))
+      if (found === undefined) continue
+      // The lockfile has to move with the manifest: pnpm refuses a lock whose
+      // specifier disagrees with the manifest it installs.
+      const locked = lock.importers?.['.']?.[section]?.[dep]
+      if (locked === undefined || locked.specifier !== spec || locked.version !== spec) {
+        throw new Error(`plugin ${name} pins ${dep} as ${spec} in package.json but ${JSON.stringify(locked)} in pnpm-lock.yaml`)
+      }
+      deps[dep] = `link:${found}`
+      locked.specifier = deps[dep]
+      locked.version = deps[dep]
+      changed = true
+    }
+  }
+  if (changed) {
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
+    writeFileSync(lockPath, dump(lock, { lineWidth: -1, noRefs: true }))
+  }
+}
+
+/**
+ * Copy one plugin's own runtime dependencies into the closure root.
+ *
+ * The built plugin is a bundle: it externalizes `@deepseek-ai/*` peers and
+ * whatever its tsdown config lists as production dependencies, and everything else
+ * is inlined into `lib/`. A name the closure already carries is left alone,
+ * which is what keeps the closure's own platform-specific copy of a package such
+ * as `node-pty` authoritative: it was chosen for this target, and the plugin
+ * resolving it by Node's upward walk is the same package the rest of the closure
+ * loads.
+ *
+ * Each dependency is resolved from the package it was declared by, not from the
+ * closure: the hoisted linker leaves a package nested under its consumer when two
+ * consumers need different versions, and a closure-root-only lookup misses it —
+ * `monaco-editor` keeps its own `marked` in `node_modules/monaco-editor`.
+ *
+ * Native and platform-specific packages are accepted here, unlike in the container:
+ * that image serves two architectures from one payload, while a closure serves one
+ * target, which is the whole reason staging runs per target.
+ *
+ * @param from - the built plugin directory holding the installed tree.
+ * @param closureRoot - the closure root that receives the packages.
+ * @param added - sink for the names this call placed.
+ * @param seen - names already judged, so one package is resolved once.
+ */
+function placePluginRuntimeDependencies(from, closureRoot, added, seen = new Set()) {
+  const manifest = readManifest(from)
+  if (manifest === undefined) return
+  const source = manifest.name
+  for (const name of Object.keys(manifest.dependencies ?? {})) {
+    if (name.startsWith('@deepseek-ai/')) continue
+    const resolved = resolveInstalledPackage(from, name)
+    if (resolved === undefined) continue
+    // A package's own name is not a dependency of itself, so this only breaks
+    // the walk on a package that reached itself through a cycle.
+    if (seen.has(name)) continue
+    seen.add(name)
+    if (typeof source === 'string' && name === source) continue
+    const dest = join(closureRoot, 'node_modules', ...name.split('/'))
+    if (!existsSync(dest)) {
+      mkdirSync(dirname(dest), { recursive: true })
+      copyModulePayload(resolved, dest)
+      added.push(name)
+    }
+    placePluginRuntimeDependencies(resolved, closureRoot, added, seen)
+  }
+}
+
+/**
+ * Resolve one package the way Node does from a declaring package, or undefined.
+ *
+ * The walk ascends from the declaring package, so a version the linker nested
+ * under a consumer is found before the closure root's own copy.
+ *
+ * @param from - the declaring package directory.
+ * @param name - the dependency name.
+ * @returns the resolved package directory, or undefined when nothing resolves.
+ */
+function resolveInstalledPackage(from, name) {
+  let current = from
+  for (;;) {
+    const candidate = join(current, 'node_modules', ...name.split('/'))
+    if (existsSync(candidate)) return candidate
+    const parent = dirname(current)
+    if (parent === current) return undefined
+    current = parent
+  }
+}
+/**
+ * Stage the fork's plugins and skills into a closure.
+ *
+ * A plugin is placed INSIDE the closure, at `<closure>/node_modules/<name>`, so a
+ * profile resolves it as a bundle from the install anchor without pnpm and without
+ * a profile `dependencies` entry. The closure root is the same directory the
+ * closure's own packages live in, so the plugin's `@deepseek-ai/*` peers and its
+ * third-party runtime dependencies resolve by Node's ordinary upward walk. This is
+ * the container's placement rule, and it is the only one of the two proven: the
+ * closure's install-anchor resolution walks `node_modules` directories, so
+ * `<closure>/plugins-src/<name>` would need a profile dependency and an install
+ * that a packaged app cannot run.
+ *
+ * The pnpm work happens on a copy of each plugin under the OS temp directory,
+ * never in the checkout and never in `<workspace>/plugins/*`: staging reads a
+ * checkout another process may be working in. Temp rather than the scratch deploy
+ * directory is load-bearing — `pnpm install` walks up for a `pnpm-workspace.yaml`,
+ * and a directory inside the harness resolves the harness workspace's own config,
+ * which installs the whole workspace instead of the one plugin.
+ *
+ * The closure carries the whole third-party runtime dependency set of every
+ * plugin, and `listUnresolved` then judges the result the way Node would.
+ *
+ * @param workspace - the harness checkout whose plugins are staged.
+ * @param closureRoot - the closure root that receives the packages and skills.
+ * @returns the staged plugin bundle names, skill names, and excluded directory names.
+ */
+async function stagePluginsAndSkills(workspace, closureRoot) {
+  const discovered = discoverPlugins(workspace)
+  const { shipped, excluded } = partitionPlugins(discovered)
+  if (excluded.length > 0) console.warn(`stage-harness: ${describeExclusions(excluded)}`)
+  if (shipped.length === 0) throw new Error(`no plugin packages found under ${join(workspace, 'plugins')}`)
+
+  const pluginsRoot = join(tmpdir(), `dsh-plugin-stage-${String(process.pid)}`)
+  mkdirSync(pluginsRoot, { recursive: true })
+  const staged = []
+  try {
+    for (const plugin of shipped) {
+      const build = join(pluginsRoot, plugin.name)
+      console.log(`stage-harness: plugin ${plugin.packageName}`)
+      copyPluginSource(plugin.dir, build)
+      await repointDanglingLinks(build, workspace, plugin.name)
+      run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], build)
+      const manifest = JSON.parse(readFileSync(join(build, 'package.json'), 'utf8'))
+      if (manifest.scripts?.build !== undefined) run('pnpm', ['build'], build)
+      // Judged by artifacts, not by exit code: a plugin mid-edit can fail a
+      // build-time typecheck after its bundles were already emitted, and a plugin
+      // with no `lib/index.js` is not loadable at all.
+      if (!existsSync(join(build, 'lib', 'index.js'))) {
+        throw new Error(`plugin ${plugin.packageName} produced no lib/index.js; a closure must carry a loadable plugin or none`)
+      }
+      const dest = join(closureRoot, 'node_modules', ...plugin.packageName.split('/'))
+      if (existsSync(dest)) throw new Error(`closure already carries ${plugin.packageName}`)
+      copyBuiltPlugin(build, dest)
+      placePluginRuntimeDependencies(build, closureRoot, [])
+      staged.push(plugin.packageName)
+    }
+    const skills = stageSkills(workspace, closureRoot)
+    return { plugins: staged, skills, excluded: excluded.map((entry) => entry.name) }
+  } finally {
+    rmSync(pluginsRoot, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Copy the fork's skills into `<closure>/skills/<name>`.
+ *
+ * One directory per skill, named by its frontmatter `name`, which is exactly the
+ * shape the skill-filesystem provider scans in `$DSH_HOME/skills` and the shape
+ * `dsh-manage` links there. The skill's own directory is copied whole so a
+ * skill's own supporting files travel with it.
+ *
+ * @param workspace - the harness checkout whose skills are staged.
+ * @param closureRoot - the closure root that receives them.
+ * @returns the staged skill names.
+ */
+function stageSkills(workspace, closureRoot) {
+  const skills = discoverSkills(workspace)
+  if (skills.length === 0) throw new Error(`no skills found under ${join(workspace, 'skills')}`)
+  for (const skill of skills) {
+    const dest = join(closureRoot, CLOSURE_SKILLS_DIR, skill.name)
+    if (existsSync(dest)) throw new Error(`closure already carries skill ${skill.name}`)
+    // The parent is created here rather than by the copy: a destination's own
+    // parent has to exist for the filesystem provider to find the entry at all,
+    // and an all-empty skills tree must still be a directory.
+    mkdirSync(join(closureRoot, CLOSURE_SKILLS_DIR), { recursive: true })
+    cpSync(skill.dir, dest, { recursive: true, dereference: true })
+  }
+  return skills.map((skill) => skill.name)
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2))
   const host = hostTarget()
@@ -763,6 +1035,11 @@ async function main() {
       console.log(`stage-harness: pruned ${String(removed.length)} foreign native package(s), ${mb(before - after)} smaller`)
     }
 
+    // The fork's plugins and skills go in before the unresolved check, so a
+    // plugin dependency that does not resolve fails staging instead of a boot.
+    const roster = await stagePluginsAndSkills(workspace, scratch)
+    console.log(`stage-harness: ${String(roster.plugins.length)} plugin(s) and ${String(roster.skills.length)} skill(s) staged into the closure`)
+
     // Nothing may remain unresolvable: a missing package here would only surface
     // as a boot crash in the shipped app.
     const unresolved = listUnresolved(scratch)
@@ -798,8 +1075,17 @@ async function main() {
       ...(target.platform === 'linux' ? { libc: target.libc ?? 'glibc' } : {}),
       node: process.version,
       runtimeVersion: NODE_VERSION,
+      plugins: roster.plugins,
+      skills: roster.skills,
+      ...(roster.excluded.length > 0 ? { pluginsExcluded: roster.excluded } : {}),
       stagedAt: new Date().toISOString(),
     }, null, 2)}\n`)
+    // The app seeds a home from this record, so it lives inside the closure
+    // rather than in the app's own source: a closure is the unit that ships, and
+    // it is also the unit a remote receives, so one record serves both.
+    writeFileSync(join(output, SEED_SCRIPT_NAME), readFileSync(join(repoRoot, 'scripts', SEED_SCRIPT_NAME)))
+    console.log(`stage-harness: plugins ${roster.plugins.join(', ') || 'none'}`)
+    console.log(`stage-harness: skills ${roster.skills.join(', ') || 'none'}`)
 
     const relative = output.startsWith(repoRoot + sep) ? output.slice(repoRoot.length + 1) : output
     console.log(`stage-harness: ${DEPLOY_FILTER}@${String(deployed.version)} (${revision}) staged at ${relative} for ${formatTarget(target)}`)

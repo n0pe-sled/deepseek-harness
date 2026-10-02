@@ -6,7 +6,7 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SecretField, ValueField } from '../src/client/fields.tsx'
+import { ValueField } from '../src/client/fields.tsx'
 
 afterEach(cleanup)
 
@@ -83,74 +83,5 @@ describe('ValueField', () => {
 
     expect(screen.getByLabelText('Command timeout')).toHaveProperty('disabled', true)
     expect(screen.getByRole('button', { name: 'Reset to default' })).toHaveProperty('disabled', true)
-  })
-})
-
-describe('SecretField', () => {
-  const secret = {
-    id: 'key',
-    label: 'API key',
-    hint: 'Stored outside the settings file.',
-    disabled: false,
-  }
-
-  it('stages the draft and never renders it', () => {
-    const onEdit = vi.fn()
-    render(
-      <SecretField
-        {...secret}
-        text=""
-        configured={false}
-        stateLabel="No key is configured."
-        onEdit={onEdit}
-      />,
-    )
-    const input = screen.getByLabelText('API key')
-
-    fireEvent.change(input, { target: { value: 'ds-secret' } })
-
-    expect(onEdit).toHaveBeenCalledWith('ds-secret')
-    expect(input).toHaveProperty('type', 'password')
-  })
-
-  it('reports the configured state the Host holds', () => {
-    const { rerender } = render(
-      <SecretField
-        {...secret}
-        text=""
-        configured={false}
-        stateLabel="No key is configured."
-        onEdit={vi.fn()}
-      />,
-    )
-    expect(screen.getByText('No key is configured.')).toBeTruthy()
-
-    rerender(
-      <SecretField
-        {...secret}
-        text="ds-secret"
-        configured
-        stateLabel="A key is configured."
-        onEdit={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('A key is configured.')).toBeTruthy()
-    expect(screen.getByLabelText('API key')).toHaveProperty('value', 'ds-secret')
-  })
-
-  it('disables the control when it is told to', () => {
-    render(
-      <SecretField
-        {...secret}
-        disabled
-        text=""
-        configured
-        stateLabel="A key is configured."
-        onEdit={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByLabelText('API key')).toHaveProperty('disabled', true)
   })
 })

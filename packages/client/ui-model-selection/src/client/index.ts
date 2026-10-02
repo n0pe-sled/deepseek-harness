@@ -46,6 +46,9 @@ function rowId(providerId: string, modelId: string): string {
 
 /** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
 function optionsOf(directory: SessionModels, t: TranslateNS<'model'>): SelectOption[] {
+  // A session that selected nothing, over a deployment that pins no default,
+  // matches no row: no entry carries the active mark.
+  const current = directory.current
   const rows: SelectOption[] = []
   for (const group of directory.groups) {
     for (const model of group.models) {
@@ -53,7 +56,7 @@ function optionsOf(directory: SessionModels, t: TranslateNS<'model'>): SelectOpt
         id: rowId(group.id, model.id),
         label: model.name,
         detail: model.description !== undefined ? `${group.name} · ${model.description}` : group.name,
-        ...(directory.current.provider === group.id && directory.current.model === model.id
+        ...(current !== null && current.provider === group.id && current.model === model.id
           ? { active: true } : {}),
       })
     }

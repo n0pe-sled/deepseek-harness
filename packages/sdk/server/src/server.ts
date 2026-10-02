@@ -13,7 +13,6 @@ import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
-import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type {
   InitializeParams,
   InitializeResult,
@@ -52,10 +51,9 @@ function successStatus(reason: string, options: HarnessSdkJsonRpcServerOptions):
  */
 export class HarnessSdkJsonRpcServer {
   private cwd = process.cwd()
-  private provider = 'deepseek-official'
-  private model = 'deepseek-official'
+  private provider: string | undefined
+  private model: string | undefined
   private maxTokens: number | undefined
-  private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
   private readonly disposers: (() => void)[] = []
@@ -104,24 +102,33 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
-   * Configure the SDK route, mounting the DeepSeek fallback only when unowned.
+   * Configure the SDK route the caller's composition serves.
+   *
+   * Both refusals are returned as rejected promises rather than thrown, because
+   * every transport reaches this method through the JSON-RPC dispatcher and reads
+   * a failed handshake off the rejection.
+   *
    * @param params - SDK handshake parameters.
-   * @returns server identity for the handshake.
+   * @returns server identity for the handshake, or a rejection naming the
+   * parameter the handshake got wrong.
    */
-  async initialize(params: InitializeParams): Promise<InitializeResult> {
+  initialize(params: InitializeParams): Promise<InitializeResult> {
     if (params.maxTokens !== undefined
       && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens <= 0)) {
-      throw new TypeError('initialize maxTokens must be a positive safe integer')
+      return Promise.reject(new TypeError('initialize maxTokens must be a positive safe integer'))
+    }
+    // The handshake names the route every SDK agent runs on; this server
+    // mounts no adapter of its own, so the surrounding composition owns it
+    // and an unserved provider is refused here rather than answered by a
+    // fallback the deployment never chose.
+    if (!this.hasAdapterFor(params.provider)) {
+      return Promise.reject(new Error(`no adapter registered for provider "${params.provider}"; mount it in the surrounding cordis.yml`))
     }
     this.cwd = resolve(params.cwd)
     this.provider = params.provider
     this.model = params.model
     this.maxTokens = params.maxTokens
-    if (!this.hasAdapterFor(this.provider)) {
-      if (this.provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${this.provider}"`)
-      this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
-    }
-    return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }
+    return Promise.resolve({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
   }
 
   /**
@@ -143,7 +150,7 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
-   * Dispose server-owned agents, adapter, and subscriptions to quiescence.
+   * Dispose server-owned agents and subscriptions to quiescence.
    * The surrounding context remains running.
    * @returns empty JSON-RPC result.
    */
@@ -167,11 +174,9 @@ export class HarnessSdkJsonRpcServer {
         failures.push(error)
       }
     }
-    const teardownResults = await Promise.allSettled([
-      ...records.map(rec => Promise.resolve().then(() => rec.handle.dispose())),
-      ...(this.llmFiber === undefined ? [] : [Promise.resolve().then(() => this.llmFiber?.dispose())]),
-    ])
-    this.llmFiber = undefined
+    const teardownResults = await Promise.allSettled(
+      records.map(rec => Promise.resolve().then(() => rec.handle.dispose())),
+    )
     failures.push(...teardownResults
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map(result => result.reason as unknown))
@@ -216,6 +221,14 @@ export class HarnessSdkJsonRpcServer {
   }
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
+    const provider = this.provider
+    const model = this.model
+    // Both arrive on the required `initialize` handshake, which also refused any
+    // provider this composition does not serve, so an uninitialized server names
+    // no route: refuse rather than create an Agent nothing can answer.
+    if (provider === undefined || model === undefined) {
+      throw new Error('no model provider is selected: initialize must name the provider and model this server runs on')
+    }
     // No preset composition: this server's compositions keep the model-facing
     // rows in the host plane, so this agent reads them from the global layer. A
     // deployment that configures a roster has to join one here first
@@ -224,8 +237,8 @@ export class HarnessSdkJsonRpcServer {
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
       agentOptions: {
-        provider: this.provider,
-        model: this.model,
+        provider,
+        model,
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
     })

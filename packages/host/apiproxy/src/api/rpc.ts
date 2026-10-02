@@ -33,7 +33,12 @@ export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
   'cancelled': {}
   'session-not-found': { sessionId: SessionId }
-  'model-unavailable': { provider: string; model: string }
+  /**
+   * The model a turn needs is not reachable: either the session selected no
+   * model at all, or nothing serves the provider it selected. A selection that
+   * named one carries it; the unselected case names neither.
+   */
+  'model-unavailable': { provider?: string; model?: string }
   'session-conflict': { sessionId: SessionId; requestedCwd: string; existingCwd?: string }
   'invalid-time-zone': { value: string }
   'workspace-attach-failed': { sessionId: SessionId; workspaceId: string }

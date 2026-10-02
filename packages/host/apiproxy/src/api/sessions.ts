@@ -154,15 +154,20 @@ export interface ModelCatalogFailure {
 
 /** Detached model-directory snapshot for one session. */
 export interface SessionModels {
-  /** Model selection for the session's next assembled step. */
-  current: ModelSelection
+  /**
+   * Model selection for the session's next assembled step, or null when the
+   * session selected nothing and the deployment pins no default. Null is what makes
+   * the picker ask for a selection instead of naming a model nothing serves.
+   */
+  current: ModelSelection | null
   /**
    * Whether an adapter currently serves `current.provider`, and therefore
    * whether this session can start a turn at all. Deliberately NOT derivable
    * from `groups`: catalog membership is advisory, so a route serving a model
    * it stopped advertising is absent from the groups yet perfectly usable,
    * while a route whose adapter is gone can serve nothing. A surface that
-   * blocks input must read this rather than the groups.
+   * blocks input must read this rather than the groups. False while no
+   * selection exists, which is exactly when a turn cannot start.
    */
   routable: boolean
   /** Successfully loaded provider groups. */

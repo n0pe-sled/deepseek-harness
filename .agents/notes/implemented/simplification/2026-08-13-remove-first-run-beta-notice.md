@@ -8,7 +8,7 @@ Every GUI first launch opened with a full-viewport internal-test statement (å†…æ
 
 ## Decision
 
-This decision removed the first-run notice from the assembled product rather than rewording it. `ui-settings-general` seated no `settings.onboarding` step; the notice component, acknowledgement store, copy owner, and locale keys were deleted, while the Host kept the `ui-onboarding` namespace so stored documents remained valid. The later [shared-modal product onboarding](../feature/2026-08-13-shared-modal-product-onboarding.md) restores a new concise testing-stage notice in `ui-settings-models`, reusing that field and backend contract without restoring the removed takeover layout or telemetry instructions. Telemetry opt-in remains an explicit deployment environment choice documented in the [CLI reference README](../../../../apps/cli/reference/README.md); the restored notice says nothing about enabling it.
+This decision removed the first-run notice from the assembled product rather than rewording it. `ui-settings-general` seated no `settings.onboarding` step; the notice component, acknowledgement store, copy owner, and locale keys were deleted, while the Host kept the `ui-onboarding` namespace so stored documents remained valid. That namespace registration and the seam it seats outlived the notice: [shared-modal product onboarding](../../archived/feature/2026-08-13-shared-modal-product-onboarding.md) restored a concise testing-stage notice on them, and [removing the first-run onboarding dialogs](2026-10-01-remove-first-run-onboarding-dialogs.md) now ships no first-run notice at all while keeping the registration for the same reason. Telemetry opt-in remains an explicit deployment environment choice documented in the [CLI reference README](../../../../apps/cli/reference/README.md); no shipped surface mentions enabling it.
 
 ## Alternatives considered
 
@@ -20,4 +20,4 @@ This decision removed the first-run notice from the assembled product rather tha
 
 ## Consequences
 
-This removal eliminated the full-viewport notice and its telemetry copy. The later restoration is intentionally a different presentation and copy revision: a shared modal precedes the inline credential dialog, the remote scenario again covers process-local acknowledgement, and the existing `welcomeNoticeVersion` field records the new copy version. The historical telemetry prompt remains absent.
+This removal eliminated the full-viewport notice and its telemetry copy. What it left in place is what a later step could reuse, and nothing reads it now: [removing the first-run onboarding dialogs](2026-10-01-remove-first-run-onboarding-dialogs.md) ships no first-run notice, so the `welcomeNoticeVersion` field and the `ui-onboarding` namespace registration serve stored documents alone. The telemetry prompt remains absent.

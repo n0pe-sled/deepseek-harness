@@ -1,6 +1,7 @@
 # Agent Note: onboarding takeover chrome moves into the step
 
 Status: implemented
+Archived: 2026-10-01
 
 ## Problem
 

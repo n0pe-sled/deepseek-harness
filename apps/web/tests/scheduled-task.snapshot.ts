@@ -23,7 +23,6 @@ describe('Web scheduled task transcript', () => {
   it('delivers saved instructions as a later task turn with ordinary assistant output', async () => {
     const scaffold = await launchWebScaffold({
       extraOverlayPath: fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url)),
-      deepSeekMissingCredential: true,
     })
     const adapter = new TaskAdapter()
     scaffold.ctx.effect(() => scaffold.ctx.llm.registerAdapter(['scheduled-task-test'], adapter))

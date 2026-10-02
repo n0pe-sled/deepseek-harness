@@ -29,9 +29,10 @@ const FILE_REFERENCE_PROMPT = fileURLToPath(new URL(
  * The catalog the shipped Web composition puts in front of the model, minus the
  * ripgrep-dependent pair below. The absences are deliberate, not incidental
  * gaps: the `cordis_*` toolset executes model-written JavaScript that no
- * sandbox row confines, `web_fetch` chooses its own request target, and
- * `mcp_*` servers spawn outside `ctx.shell`. The composition Agent Note owns the
- * rationale and its sources.
+ * sandbox row confines, the web tool pair is uncomposed because the base bundle
+ * mounts no `web`, provider, or `tool-web` row, and `mcp_*` servers spawn
+ * outside `ctx.shell`. The composition Agent Note owns the rationale and its
+ * sources.
  */
 const EXPECTED_TOOLS = [
   'ask_user_question',
@@ -54,7 +55,6 @@ const EXPECTED_TOOLS = [
   'subagent_fork',
   'todo_write',
   'update_goal',
-  'web_search',
   'workflow',
   'write',
 ]
@@ -75,35 +75,11 @@ afterEach(async () => {
 })
 
 it('assembles the shipped Web catalog, file-reference guidance, retry policy, and confined access default', async () => {
-  scaffold = await launchWebScaffold({ deepSeekMissingCredential: true })
+  scaffold = await launchWebScaffold()
   const ctx = scaffold.ctx
-  expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchInlineSnapshot(`
-    {
-      "initialDelayMs": 500,
-      "jitterRatio": 0.1,
-      "maxDelayMs": 10000,
-      "maxRetries": 5,
-      "mode": "normal",
-      "retryableCodes": [
-        "EMPTY_RESPONSE",
-        "RATE_LIMIT",
-        "SERVER",
-        "TIMEOUT",
-        "TRANSPORT",
-      ],
-    }
-  `)
-  await ctx.settings.update(settingsNamespace('llm-deepseek'), {
-    retryPolicy: { mode: 'always', maxRetries: 5 },
-  })
-  expect(ctx.llm.providerRetryPolicy('deepseek-official')).toMatchInlineSnapshot(`
-    {
-      "initialDelayMs": 500,
-      "jitterRatio": 0.1,
-      "maxDelayMs": 10000,
-      "mode": "always",
-    }
-  `)
+  // The route the retry policy belongs to is the shipped `llm-pi-ai` row: a
+  // profile in its settings section is what registers one, and the shipped base
+  // bundle pre-installs no DeepSeek adapter to carry a policy of its own.
   await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
     providers: {
       openai: {},

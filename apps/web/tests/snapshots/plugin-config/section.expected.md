@@ -32,7 +32,3 @@
         - 'button "Show settings: Agent loop"':
           - text: Agent loop How the agent dispatches tool calls.
           - img
-      - listitem:
-        - 'button "Show settings: Web search"':
-          - text: Web search The DeepSeek search provider.
-          - img

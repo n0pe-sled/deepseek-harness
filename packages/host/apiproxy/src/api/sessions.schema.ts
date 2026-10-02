@@ -247,9 +247,9 @@ export const sessionModelsRequestSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<RequestPayload<'session.models'>>>
 
-/** session.models response value. */
+/** session.models response value; a null current selection means the session selected nothing. */
 export const sessionModelsValueSchema = z.object({
-  current: modelSelectionSchema,
+  current: modelSelectionSchema.nullable(),
   routable: z.boolean(),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),

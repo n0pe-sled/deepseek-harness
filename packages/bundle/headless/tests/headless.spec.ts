@@ -47,17 +47,30 @@ function appendTurn(
   })
 }
 
-/** Mount the real registries around a small scripted Agent factory. */
-async function bench(script: Script): Promise<{
+/**
+ * Mount the real registries around a small scripted Agent factory.
+ * `pinned` names the composition pair to mount; null mounts the shipped entry,
+ * which names no pair. The default is the pinned pair a configured deployment has.
+ */
+async function bench(script: Script, pinned: { provider: string; model: string } | null = {
+  provider: 'test-provider',
+  model: 'test-model',
+}): Promise<{
   ctx: Context
+  created(): number
   run(): Promise<{ code: number; out: string; err: string; order: string[] }>
 }> {
   const ctx = new Context()
+  let created = 0
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'test-model' })
+  // An unpinned composition entry is what the shipped product mounts: the
+  // runner must refuse the task rather than create an Agent nothing serves.
+  if (pinned === null) await ctx.plugin(AgentDefaultModelConfig)
+  else await ctx.plugin(AgentDefaultModelConfig, pinned)
   ctx.agents.setFactory({
     async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
+      created += 1
       const session = ctx.sessions.create(options.sessionId, {
         ...options.meta === undefined ? {} : { meta: options.meta },
       })
@@ -91,6 +104,7 @@ async function bench(script: Script): Promise<{
   })
   return {
     ctx,
+    created: () => created,
     run: async () => {
       let out = ''
       let err = ''
@@ -175,6 +189,21 @@ describe('headless runner', () => {
   it('exits 1 when the owned interval contains no turn', async () => {
     const test = await bench({ afterPrompt: () => {} })
     expect(await test.run()).toMatchObject({ code: 1, out: '\n', err: '' })
+    await test.ctx.fiber.dispose()
+  })
+
+  it('refuses the task without creating an Agent when no model is selected', async () => {
+    // The shipped composition pre-installs no provider and pins no default, so
+    // this is the state a user reaches by running the profile as delivered.
+    const test = await bench({ afterPrompt: () => {} }, null)
+    expect(await test.run()).toEqual({
+      code: 1,
+      out: '',
+      err: 'dsh: no model is selected: pin provider and model on the agent-default-model'
+        + ' composition entry, or save a selection in the settings document\n',
+      order: ['exit'],
+    })
+    expect(test.created()).toBe(0)
     await test.ctx.fiber.dispose()
   })
 

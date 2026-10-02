@@ -318,14 +318,16 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.agentDefaultModel` — `AgentDefaultModelConfig`
 
-Owns the default model selection independently of any Host or transport. The composition entry remains usable without a settings provider; when one is mounted, its user layer is read live.
+Owns the default model selection independently of any Host or transport. The composition entry remains usable without a settings provider; when one is mounted, its user layer is read live. An entry that pins no pair leaves every consumer in the unselected state.
 
 ```ts cordis-catalog
 /**
  * Read the current default model selection.
- * @returns a detached provider, model, and optional reasoning selection.
+ * @returns a detached provider, model, and optional reasoning selection, or
+ * undefined when neither the composition entry nor the saved settings section
+ * names a provider and a model.
  */
-currentSelection(): ModelSelection
+currentSelection(): ModelSelection | undefined
 
 /**
  * Save the complete default model selection. A deployment without a settings

@@ -34,18 +34,6 @@ export interface CardFieldSpec {
   parse: (text: string) => FieldWrite | undefined
 }
 
-/**
- * A control whose value is written outside the settings section. A credential
- * literal never rides a response, so its draft has nothing to seed from: it is
- * blank until typed, and a blank draft writes nothing.
- */
-export interface CardSecretSpec {
-  /** Field name addressing this control inside the card's form. */
-  field: string
-  /** Write the staged text; resolves to whether the Host accepted it. */
-  write: (text: string) => Promise<boolean>
-}
-
 /** One field as a card's control renders it. */
 export interface CardFieldState {
   /** Draft text the control renders. */
@@ -154,7 +142,6 @@ export function textField(field: string): CardFieldSpec {
  */
 export class CardForm<T> {
   private readonly specs: Map<string, CardFieldSpec>
-  private readonly secretSpecs: Map<string, CardSecretSpec>
   private readonly staged = new Map<string, StagedEdit>()
   private readonly listeners = new Set<() => void>()
   private saving = false
@@ -163,15 +150,12 @@ export class CardForm<T> {
   /**
    * @param scope - the bound settings scope for this card's namespace.
    * @param specs - the section fields this card edits.
-   * @param secrets - the card's write-only controls, written outside the section.
    */
   constructor(
     private readonly scope: SettingsScope<T>,
     specs: CardFieldSpec[],
-    secrets: CardSecretSpec[] = [],
   ) {
     this.specs = new Map(specs.map(spec => [spec.field, spec]))
-    this.secretSpecs = new Map(secrets.map(spec => [spec.field, spec]))
     scope.subscribe(() => { this.publish() })
   }
 
@@ -205,14 +189,11 @@ export class CardForm<T> {
 
   /**
    * Read one control's state.
-   * @param field - field name of a section field or of a write-only control.
+   * @param field - field name of one of this card's section fields.
    * @returns the draft text, whether a save would leave an override, and whether it is invalid.
    */
   field(field: string): CardFieldState {
     const staged = this.staged.get(field)
-    if (this.secretSpecs.has(field)) {
-      return { text: staged?.text ?? '', overridden: false, invalid: false }
-    }
     const spec = this.spec(field)
     if (staged === undefined) {
       return { text: spec.format(this.sectionValue(field)), overridden: this.stored(field), invalid: false }
@@ -280,12 +261,6 @@ export class CardForm<T> {
   private plan(): PlannedWrite[] {
     const plan: PlannedWrite[] = []
     for (const [field, staged] of this.staged) {
-      const secret = this.secretSpecs.get(field)
-      if (secret !== undefined) {
-        const value = staged.text.trim()
-        if (value !== '') plan.push({ field, run: () => secret.write(value) })
-        continue
-      }
       const spec = this.spec(field)
       if (staged.clear) {
         if (this.stored(field)) plan.push({ field, run: () => this.clear(field) })

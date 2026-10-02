@@ -25,7 +25,7 @@ class MemorySettings extends SettingsProvider {
   }
 }
 
-async function boot(): Promise<{
+async function boot(config?: { provider?: string; model?: string }): Promise<{
   ctx: Context
   settingsFiber: Context['fiber']
   defaultModel: AgentDefaultModelConfig
@@ -33,16 +33,17 @@ async function boot(): Promise<{
   const ctx = new Context()
   const settingsFiber = ctx.plugin(MemorySettings)
   await settingsFiber.await()
-  await ctx.plugin(AgentDefaultModelConfig, {
-    provider: 'deepseek-official',
-    model: 'deepseek-v4-flash',
-  })
+  if (config === undefined) await ctx.plugin(AgentDefaultModelConfig)
+  else await ctx.plugin(AgentDefaultModelConfig, config)
   return { ctx, settingsFiber, defaultModel: ctx.agentDefaultModel }
 }
 
+/** The pair a deployment pins in its composition entry. */
+const PINNED = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+
 describe('AgentDefaultModelConfig', () => {
   it('resolves the user layer over the composition entry', async () => {
-    const bench = await boot()
+    const bench = await boot(PINNED)
     expect(bench.defaultModel.currentSelection()).toEqual({
       provider: 'deepseek-official', model: 'deepseek-v4-flash',
     })
@@ -57,7 +58,7 @@ describe('AgentDefaultModelConfig', () => {
   })
 
   it('clears a stored effort when the saved selection has none', async () => {
-    const bench = await boot()
+    const bench = await boot(PINNED)
     await bench.defaultModel.saveSelection({
       provider: 'acme-gateway', model: 'acme-large', reasoningEffort: ReasoningEffortId('high'),
     })
@@ -67,7 +68,7 @@ describe('AgentDefaultModelConfig', () => {
   })
 
   it('layers a hand-written partial section over the entry', async () => {
-    const bench = await boot()
+    const bench = await boot(PINNED)
     await bench.settingsFiber.ctx.settings.replace(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, {
       model: 'deepseek-reasoner',
     })
@@ -78,9 +79,9 @@ describe('AgentDefaultModelConfig', () => {
   })
 
   it('falls back to the composition entry when the settings provider detaches', async () => {
-    const bench = await boot()
+    const bench = await boot(PINNED)
     await bench.defaultModel.saveSelection({ provider: 'acme-gateway', model: 'acme-large' })
-    expect(bench.defaultModel.currentSelection().provider).toBe('acme-gateway')
+    expect(bench.defaultModel.currentSelection()?.provider).toBe('acme-gateway')
     await bench.settingsFiber.dispose()
     expect(bench.defaultModel.currentSelection()).toEqual({
       provider: 'deepseek-official', model: 'deepseek-v4-flash',
@@ -94,5 +95,50 @@ describe('AgentDefaultModelConfig', () => {
     await ctx.agentDefaultModel.saveSelection({ provider: 'other', model: 'other' })
     expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'p', model: 'm' })
     await ctx.fiber.dispose()
+  })
+
+  it('selects nothing when the composition names no pair', async () => {
+    // The shipped product pins no provider: `dsh-base` mounts this row with no
+    // config at all, and a missing config must load rather than throw.
+    const bench = await boot()
+    expect(bench.defaultModel.currentSelection()).toBeUndefined()
+
+    // A user selection still lands, and saves the complete section.
+    await bench.defaultModel.saveSelection({ provider: 'acme-gateway', model: 'acme-large' })
+    expect(bench.defaultModel.currentSelection()).toEqual({ provider: 'acme-gateway', model: 'acme-large' })
+    expect(bench.settingsFiber.ctx.settings.describe().find(entry =>
+      entry.ns === AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE)?.user)
+      .toEqual({ provider: 'acme-gateway', model: 'acme-large' })
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('accepts an empty settings section as a cleared selection', async () => {
+    const bench = await boot()
+    await bench.defaultModel.saveSelection({ provider: 'acme-gateway', model: 'acme-large' })
+    expect(bench.defaultModel.currentSelection()).toEqual({ provider: 'acme-gateway', model: 'acme-large' })
+
+    // Clearing the user layer is a valid empty section rather than a
+    // validation failure, and the unpinned entry selects nothing.
+    await bench.settingsFiber.ctx.settings.replace(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, {})
+    expect(bench.defaultModel.currentSelection()).toBeUndefined()
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('selects nothing while a saved section names only one field', async () => {
+    const bench = await boot()
+    await bench.settingsFiber.ctx.settings.replace(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, {
+      model: 'acme-large',
+    })
+    expect(bench.defaultModel.currentSelection()).toBeUndefined()
+    await bench.ctx.fiber.dispose()
+  })
+
+  it('selects nothing while a stored field is empty', async () => {
+    const bench = await boot()
+    await bench.settingsFiber.ctx.settings.replace(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, {
+      provider: '', model: '',
+    })
+    expect(bench.defaultModel.currentSelection()).toBeUndefined()
+    await bench.ctx.fiber.dispose()
   })
 })

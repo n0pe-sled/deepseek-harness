@@ -11,7 +11,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { LocalOptions } from '../../shared/instance.ts'
 import { parseReadyUrl } from '../../shared/readiness.ts'
-import { bundledHarnessArgs, resolveBundledHarness, type BundledHarness } from './bundled.ts'
+import { bundledHarnessArgs, resolveBundledHarness, seedBundledHarnessHome, type BundledHarness } from './bundled.ts'
 import { augmentPath } from './exec-path.ts'
 
 export interface LocalHandle {
@@ -98,9 +98,24 @@ export function resolveLaunchCommand(opts: LocalOptions, resolveBundled: () => B
 export async function startLocalDsh(
   opts: LocalOptions,
   log: (line: string) => void = () => undefined,
+  seedBundled: (harness: BundledHarness, log: (line: string) => void) => Promise<boolean> = seedBundledHarnessHome,
 ): Promise<LocalHandle> {
   const command = resolveLaunchCommand(opts)
   const { bin, args, env } = command
+  // A bundled run seeds its home from the closure before the child starts, so
+  // the profile it boots names the plugins and skills this build ships. A
+  // configured `dshPath` is somebody else's harness with somebody else's home,
+  // and a sandboxed run gets a seeded home from its image, so neither is seeded
+  // here. The child is not spawned on a seed failure: the home is not the
+  // harness's to remove, and an instance that boots without the shipped plugins
+  // would say nothing about why.
+  if (command.bundled !== undefined) {
+    try {
+      await seedBundled(command.bundled, log)
+    } catch (error) {
+      throw new Error(`could not seed the bundled harness home: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   const child = spawn(bin, args, {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

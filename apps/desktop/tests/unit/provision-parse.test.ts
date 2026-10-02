@@ -12,6 +12,7 @@ import {
   buildDetectCommand,
   buildExtractCommand,
   buildLaunchCommand,
+  buildSeedCommand,
   parseDetectOutput,
   parseGlibcVersion,
   parsePidFile,
@@ -279,6 +280,40 @@ describe('buildLaunchCommand', () => {
     // empty PID file and an empty log rather than as an error.
     expect(command).not.toContain('&;')
     expect(command).toContain('&')
+  })
+})
+
+describe('buildSeedCommand', () => {
+  const command = buildSeedCommand({
+    closureDir: '/remote/key',
+    nodePath: '/remote/key/bin/node',
+  })
+
+  it('runs the seeder the closure carries, so a remote needs no Node install', () => {
+    expect(command).toContain("'/remote/key/bin/node'")
+    expect(command).toContain("'/remote/key/seed-home.mjs'")
+  })
+
+  it('passes the closure root, which is what the seeder reads the roster from', () => {
+    expect(command).toContain("'/remote/key'")
+  })
+
+  it('resolves the home the way the harness does, so DSH_HOME decides it', () => {
+    // A remote whose home is not `~/.dsh` would otherwise be seeded in one
+    // place and read from another, which looks like a seed that did nothing.
+    expect(command).toContain('home=${DSH_HOME:-$HOME/.dsh}')
+    expect(command).toContain('DSH_HOME="$home"')
+  })
+
+  it('fails the command when seeding fails, so a remote never boots unseeded', () => {
+    expect(command).toContain('set -e')
+  })
+
+  it('quotes a path holding spaces', () => {
+    const spaced = buildSeedCommand({ closureDir: '/remote/my key', nodePath: '/remote/my key/bin/node' })
+    expect(spaced).toContain("'/remote/my key/bin/node'")
+    expect(spaced).toContain("'/remote/my key/seed-home.mjs'")
+    expect(spaced).toContain("'/remote/my key'")
   })
 })
 

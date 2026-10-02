@@ -576,11 +576,12 @@ function directoryError(error: unknown): RpcError {
 /** Resolved Agent model and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
   /**
-   * The model selection a session starts from when its own log names none. Read on
-   * every access rather than captured, so a default saved during this process
-   * reaches the sessions that have not run a turn yet.
+   * The model selection a session starts from when its own log names none, or
+   * undefined when the deployment pins no default. Read on every access rather than
+   * captured, so a default saved during this process reaches the sessions that have
+   * not run a turn yet.
    */
-  defaultModelSelection: () => ModelSelection
+  defaultModelSelection: () => ModelSelection | undefined
   /**
    * Record a selection as the new default. Either absent, or a closure that
    * may itself decline — the gateway plugin always passes one, and it no-ops
@@ -1049,13 +1050,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL
   const coldBlankProbeMaxBytes = defaults.coldBlankProbeMaxBytes
     ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES
-  /** The seed model each create/resume declares; re-read so it never goes stale. */
+  /**
+   * The seed model each create/resume declares; re-read so it never goes stale.
+   * A deployment with no default pins none, and the session still creates: the
+   * refusal belongs to the turn that needs a route, not to the session identity.
+   */
   const agentOptions = (): AgentOptions => {
-    const { provider, model } = defaults.defaultModelSelection()
-    return { provider, model }
+    const selection = defaults.defaultModelSelection()
+    return selection === undefined ? {} : { provider: selection.provider, model: selection.model }
   }
-  type WebModelSelectionRef = ModelSelectionRef & { current: ModelSelection }
-  const selections = new WeakMap<Agent, WebModelSelectionRef>()
+  const selections = new WeakMap<Agent, ModelSelectionRef>()
   /**
    * Serializes `agentPreset.select` per session. Two concurrent selects both
    * pass the blank check, and the second `unmountPresetFor` then finds nothing
@@ -1090,14 +1094,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * its log, while a blank session (New Session reuses one rather than minting
    * another) reads any default saved after it was created. There is no create-time
    * per-session override tier on this wire — if one returns (a create-options
-   * contribution), it must fold in between the selection and the log.
+   * contribution), it must fold in between the selection and the log. A
+   * deployment that pins no default and a session that logged none leave the
+   * selection unset, which the surfaces that need a route refuse.
    */
-  function selectionFor(agent: Agent): WebModelSelectionRef {
+  function selectionFor(agent: Agent): ModelSelectionRef {
     const installed = selections.get(agent)
     if (installed !== undefined) return installed
     let picked: ModelSelection | undefined
-    const selection: WebModelSelectionRef = {
-      get current(): ModelSelection {
+    const selection: ModelSelectionRef = {
+      get current(): ModelSelection | undefined {
         if (picked !== undefined) return picked
         // Incrementally folded by the session, so a per-step read costs
         // O(new events) rather than a rescan.
@@ -1780,13 +1786,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /**
-   * Resolve the addressed agent for a turn-starting method and refuse when no
-   * adapter serves its current selection: a provider nothing serves cannot start a
-   * turn, and letting it try spends the whole pre-step path to fail inside
-   * the adapter with a message about registration. Refusing here names the
-   * model the session is pointed at while the draft is still in the composer.
-   * This is `session.prompt`'s enforcement boundary: a client that disables
-   * its input is an affordance, and the method stays callable regardless.
+   * Resolve the addressed agent for a turn-starting method and refuse when its
+   * selection cannot start a turn: neither a session that selected no model at all
+   * nor one whose route nothing serves can run, and letting either try spends the
+   * whole pre-step path to fail inside the adapter with a message about
+   * registration. Refusing here names what the session needs while the draft is
+   * still in the composer. This is `session.prompt`'s enforcement boundary: a
+   * client that disables its input is an affordance, and the method stays
+   * callable regardless.
    */
   async function turnAgentFor<T>(
     request: RpcRequest<unknown>, sessionId: SessionId,
@@ -1795,6 +1802,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if ('error' in found) return { refused: err(request, found.error) }
     const agent = found.agent
     const selection = selectionFor(agent).current
+    if (selection === undefined) {
+      return {
+        refused: err(request, {
+          code: 'model-unavailable',
+          message: 'no model is selected for this session; select one before sending a prompt',
+          details: {},
+        }),
+      }
+    }
     if (!routeServed(selection.provider)) {
       return {
         refused: err(request, {
@@ -2187,8 +2203,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if ('error' in found) return err(request, found.error)
         const current = selectionFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
-        const routable = routeServed(current.provider)
-        return ok(request, { current: { ...current }, routable, groups, failures })
+        // A session that selected nothing reports null rather than a model
+        // nobody serves, so the picker asks for a selection instead of naming
+        // one; a selection whose route is gone still passes through.
+        const routable = current !== undefined && routeServed(current.provider)
+        return ok(request, { current: current === undefined ? null : { ...current }, routable, groups, failures })
       },
 
       async selectModel(request) {
@@ -2384,13 +2403,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           try {
             if (hasImage) {
               const current = selectionFor(agent).current
-              const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
-              if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
-                return err(request, {
-                  code: 'attachment-error',
-                  message: `Model "${current.model}" does not support image input.`,
-                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
-                })
+              if (current !== undefined) {
+                const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model)
+                if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
+                  return err(request, {
+                    code: 'attachment-error',
+                    message: `Model "${current.model}" does not support image input.`,
+                    details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+                  })
+                }
               }
             }
             const durable = await durablePromptContent(ctx, content)
@@ -2830,9 +2851,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
           // Read live for the same reason: this is what the NEXT session will
-          // start from, so a saved default has to be what it reports.
-          provider: selection.provider,
-          model: selection.model,
+          // start from, so a saved default has to be what it reports. A
+          // deployment that pins none reports none, which is the state its next
+          // session starts in.
+          ...selection === undefined ? {} : { provider: selection.provider, model: selection.model },
           attachedSessions: ctx.agents.list().length,
           home: homedir(),
           canOpenPath: canOpenPaths(),

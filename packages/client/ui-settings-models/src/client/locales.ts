@@ -1,7 +1,5 @@
 /** Copy dictionaries for the Models settings section. */
 
-import { WELCOME_NOTICE_COPY } from '../onboarding-copy.ts'
-
 /** English strings (the key-set source of truth). */
 export const en = {
   nav: 'Models',
@@ -89,16 +87,6 @@ export const en = {
   customNeedsModels: 'A custom provider needs at least one model.',
   create: 'Create provider',
   creating: 'Creating\u2026',
-  welcomeTitle: WELCOME_NOTICE_COPY.title,
-  welcomeBody: WELCOME_NOTICE_COPY.body,
-  welcomeContinue: WELCOME_NOTICE_COPY.continueLabel,
-  welcomeError: 'The acknowledgement could not be saved. Please try again.',
-  onboardingTitle: 'Add an API key to get started',
-  onboardingDescription: 'Configure the official DeepSeek provider to start building.',
-  onboardingLater: 'Configure later',
-  onboardingSave: 'Save and continue',
-  onboardingSaving: 'Saving…',
-  keyRequired: 'Enter an API key to continue.',
 }
 
 /** The settings.models namespace key union. */

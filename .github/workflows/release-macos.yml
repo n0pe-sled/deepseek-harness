@@ -56,8 +56,18 @@ jobs:
       # One checkout, at the repository root: the harness workspace and the app
       # under apps/desktop come from the same revision, so the closure staged
       # below is always the harness this run carries.
+      #
+      # Submodules carry the fork's plugins: without them plugins/* arrives as
+      # empty directories, the staging step finds no plugin, and the shipped app
+      # silently loses every plugin the fork carries. Every one of those
+      # repositories is public, so the default GITHUB_TOKEN reads them and no PAT
+      # is needed; add a fine-grained PAT with read-only Contents access as a
+      # REPOS_TOKEN secret and pass `token: ${{ secrets.REPOS_TOKEN }}` here if
+      # one ever goes private.
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

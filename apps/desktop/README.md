@@ -63,15 +63,26 @@ Staging uses the reviewed frozen lockfile with lifecycle scripts disabled. Cross
 
 A packaged build carries its own harness, so a user can copy the `.dmg` into
 `/Applications` and run a local instance with **no Node install and no `dsh` on
-PATH**. Two pieces make that work:
+PATH**. Four pieces make that work:
 
 - `scripts/stage-harness.mjs` materializes the closure into `resources/harness`
   — `lib/bin.js` plus a flat `node_modules` — from the **harness checkout this
   app lives in**, not from the npm registry. The app sits at `apps/desktop`, so
   that is the repository root two levels up, and the revision it is on is what
-  ships, including its local plugins and skills. Point it elsewhere with
-  `--workspace` or `$DSH_HARNESS_WORKSPACE`, which also covers a standalone
-  app checkout next to a sibling `../deepseek-harness`.
+  ships. Point it elsewhere with `--workspace` or `$DSH_HARNESS_WORKSPACE`, which
+  also covers a standalone app checkout next to a sibling
+  `../deepseek-harness`.
+- The fork's plugins are staged into the closure too, each one **built at stage
+  time** and placed at `<closure>/node_modules/<name>` so a profile resolves it
+  as a bundle from the install anchor, with no `pnpm` on the user's machine. Every
+  plugin the checkout carries is staged except the three directories named by
+  `PLUGIN_EXCLUSIONS` in `scripts/plugin-roster.mjs`: `crescendo-attacker`,
+  `_security-review`, and `web-search-searxng`. An excluded directory that is
+  present is reported in the staging output. Building needs `pnpm` on the staging
+  machine, which is a CI runner or a developer checkout, never the packaged app.
+- The fork's skills are staged into the closure at `<closure>/skills/<name>`, one
+  directory per skill, discovered by the same frontmatter rule the
+  skill-filesystem provider applies.
 - The app boots that closure with its own Electron binary as the Node runtime
   (`ELECTRON_RUN_AS_NODE=1`), because Electron embeds Node ≥ 22 — the harness's
   engine floor. See `src/main/instances/bundled.ts`.
@@ -84,12 +95,34 @@ pnpm dist:release               # stage Mac + Linux x64/arm64, build, and dmg
 
 Staging fails loudly rather than shipping a broken closure: it verifies the
 deployed version matches the workspace version, that the CLI entry and web UI are
-present, that node-pty's macOS `spawn-helper` is executable, and that every
-runtime dependency resolves the way Node's own loader would
+present, that node-pty's macOS `spawn-helper` is executable, that every plugin's
+own build produced a loadable `lib/index.js`, and that every runtime dependency
+resolves the way Node's own loader would
 (`scripts/lib/resolve-closure.ts`).
 
+### Seeding a home from the closure
+
+A closure carries the plugins and skills, but a profile loads a bundle by name and
+the skill provider scans a directory, so nothing is loaded until the home names
+them. `apps/desktop/scripts/seed-home.mjs` ships inside every closure and is the
+one implementation of that seeding: the app imports it for a local instance, and a
+provisioned remote runs it on the far side, so both apply identical rules.
+
+The profile manifest is seeded only when it is absent, or when its bundle list is
+**exactly** `['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']`. A list a
+person edited is never rewritten, because the edit is the record of what they chose.
+Skills are placed only where nothing is, or where an earlier seed left a dangling
+symlink; a real file or directory is somebody's. Nothing else under the home is
+read or written: not `settings.yaml`, not `credentials`, not a session, and not the
+profile's own patch layer.
+
+A container sandbox instance is not seeded by the app at all: its image carries a
+home whose profile already lists every plugin, because the image context installs them
+with `pnpm` at build time (`deploy/sandbox-image/scripts/prepare-context.mjs`).
+
 An instance with an explicit executable path still spawns that binary instead,
-so a custom or system `dsh` keeps working. Only the default (no path set) uses
+so a custom or system `dsh` keeps working and its home is left alone: this app
+cannot know which harness that path points at. Only the default (no path set) uses
 the bundled closure, and with no bundled closure present — a from-source dev run
 before staging — adding a local instance reports that clearly instead of
 silently falling back to PATH.
@@ -254,6 +287,12 @@ The updater logs to `~/Library/Logs/DSH Desktop/update.log`, and the update wind
   40 MB of `.dmg`. That is the deliberate trade for provisioning working offline
   against infrastructure the user controls, rather than fetching a closure from a
   registry.
+- The fork's plugins and skills cost about 27 MB per closure: 12 plugins and 14
+  skills take the darwin-arm64 closure from 448.6 MB to 475.5 MB on disk, and each
+  plugin's own runtime dependencies are placed once at the closure root, so a
+  package two plugins share is carried once. A closure staged with an empty
+  `plugins/` tree fails staging outright rather than shipping a harness with none of
+  the fork's plugins.
 - electron-builder refuses any copy whose *relative* root is named
   `node_modules` (`app-builder-lib/out/util/filter.js`), which silently dropped
   the whole closure when `extraFiles.from` pointed straight at

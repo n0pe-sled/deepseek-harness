@@ -15,7 +15,9 @@
  */
 import { app } from 'electron'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { BUNDLED_CLI_RELATIVE, readHarnessMeta } from './closure-catalog.ts'
 import type { HarnessMeta } from './closure-catalog.ts'
 
@@ -85,4 +87,64 @@ export function bundledHarnessArgs(harness: BundledHarness, dshArgs: readonly st
   // --expose-internals first: it is a runtime flag for the embedded Node, and
   // everything after the CLI path belongs to the CLI's own parser.
   return ['--expose-internals', harness.cli, 'web', '--port', '0', '--no-open', ...dshArgs]
+}
+
+/**
+ * The home a bundled local instance uses.
+ *
+ * The app never sets `DSH_HOME` for a local instance, so the child inherits the
+ * GUI process's own `DSH_HOME`, else `~/.dsh`. This mirrors
+ * `resolveDshHome` in `@deepseek-ai/dsh-home-paths`, which the harness applies
+ * on the far side: the app cannot import from that package, because it consumes
+ * prebuilt closures rather than the harness sources.
+ * @returns the absolute harness home the child will use.
+ */
+export function localHarnessHome(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.DSH_HOME
+  const selected = configured !== undefined && configured.trim().length > 0 ? configured : join(homedir(), '.dsh')
+  return resolve(selected.startsWith('~/') ? join(homedir(), selected.slice(2)) : selected)
+}
+
+/**
+ * Seed the bundled closure's plugins and skills into the home its instance uses.
+ *
+ * The closure's own `seed-home.mjs` is the one implementation of the rule, and
+ * it is imported rather than reimplemented: it decides whether a profile manifest
+ * may be rewritten and whether a skill entry may be replaced, and both answers have
+ * to be the same for a local instance, a remote one, and the app.
+ *
+ * A missing closure, an unseeded one, and a home that refuses the write are all
+ * reported rather than thrown: an instance that boots without this app's plugins is
+ * still a working harness, and a failed connect names the real cause.
+ *
+ * @param harness - the resolved bundled closure.
+ * @param log - progress sink, wired to the instance's capped log buffer.
+ * @returns whether the seed wrote anything.
+ */
+export async function seedBundledHarnessHome(
+  harness: BundledHarness,
+  log: (line: string) => void = () => undefined,
+): Promise<boolean> {
+  const home = localHarnessHome()
+  const seedScript = join(harness.root, 'seed-home.mjs')
+  if (!existsSync(seedScript)) {
+    log(`the staged closure carries no seed-home.mjs; ${home} keeps the profile it has`)
+    return false
+  }
+  try {
+    // The module is shipped with the closure and is plain ESM, so neither the
+    // app's bundle nor a build step is involved in loading it.
+    const seed = (await import(pathToFileURL(seedScript).href)) as {
+      seedHome: (home: string, closureRoot: string) => { manifestWritten: boolean; skills: string[] }
+    }
+    const result = seed.seedHome(home, harness.root)
+    log(result.manifestWritten
+      ? `seeded the web profile at ${home} with the plugins this build ships`
+      : `${home} keeps its own plugin selection; the web profile was left alone`)
+    if (result.skills.length > 0) log(`seeded ${String(result.skills.length)} skill(s) into ${join(home, 'skills')}`)
+    return result.manifestWritten || result.skills.length > 0
+  } catch (error) {
+    log(`could not seed ${home}: ${error instanceof Error ? error.message : String(error)}`)
+    return false
+  }
 }

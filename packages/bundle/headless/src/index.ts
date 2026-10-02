@@ -92,6 +92,8 @@ function fail(io: HeadlessIo, error: unknown): void {
  * @param ctx - plugin context carrying the Agent, default model, Session, and launcher IO services.
  * @param task - one-shot task text.
  * @param io - process-facing effects.
+ * @returns fulfillment after the requested exit; a run without a selected model
+ * or one whose Agent creation fails reports on stderr and requests exit 1.
  */
 async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   // Loader siblings mount concurrently. Await the complete application before
@@ -104,6 +106,16 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   if (agents === undefined || defaultModel === undefined || sessions === undefined) return
 
   const selection = defaultModel.currentSelection()
+  // No model flag exists on this command line: the task positional is the app's
+  // whole input, so the selection comes from the composition entry or the saved
+  // settings section. Without one, creating the Agent would start a session whose
+  // provider nothing serves, so refuse here while the reason is still nameable.
+  if (selection === undefined) {
+    throw new Error(
+      'no model is selected: pin provider and model on the agent-default-model composition entry,'
+      + ' or save a selection in the settings document',
+    )
+  }
   // This bundle composes no preset roster, so the model-facing rows sit in the
   // host plane and the agent reads them from the global layer. A deployment
   // that DOES configure one has to join it here first

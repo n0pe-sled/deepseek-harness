@@ -1,6 +1,7 @@
 # Agent Note: official DeepSeek first-run credential setup
 
 Status: implemented
+Archived: 2026-10-01
 
 ## Problem
 

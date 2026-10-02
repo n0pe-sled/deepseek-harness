@@ -1,6 +1,7 @@
 # Agent Note: Shared-modal product onboarding
 
 Status: implemented
+Archived: 2026-10-01
 
 ## Problem
 

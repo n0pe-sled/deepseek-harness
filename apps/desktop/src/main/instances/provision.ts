@@ -28,6 +28,7 @@ import {
   buildDetectCommand,
   buildExtractCommand,
   buildLaunchCommand,
+  buildSeedCommand,
   parseDetectOutput,
   parseRemoteLogPort,
   remoteClosureDir,
@@ -407,6 +408,17 @@ export class RemoteProvisioner {
     const nodePath = provision.nodePath !== undefined && provision.nodePath !== ''
       ? provision.nodePath
       : `${remoteDir}/bin/node`
+    // The remote owns its own home on the far side, so the closure's own seeder
+    // writes it there before the harness starts. Done here rather than shipping a
+    // seeded home: the home belongs to the remote, and the seeding rule is the
+    // same one a local instance applies to its own home.
+    const seed = await this.run(opts, buildSeedCommand({ closureDir: remoteDir, nodePath }))
+    if (seed.code !== 0) {
+      throw new ProvisionRefusedError(
+        `could not seed the harness home on ${opts.host} (exit ${String(seed.code)})${lastLines(seed.stderr, 2) === '' ? '' : `: ${lastLines(seed.stderr, 2)}`}`,
+      )
+    }
+    this.deps.log(`seeded the remote home from the closure: ${lastLines(seed.stdout, 1) || 'no report'}`)
     const { remotePort, reused } = await this.launch(opts, remoteDir, nodePath)
     this.deps.log(`remote harness listening on 127.0.0.1:${String(remotePort)}`)
 

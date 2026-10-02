@@ -28,6 +28,12 @@ import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import {
+  describeExclusions,
+  discoverPlugins as discoverPluginEntries,
+  discoverSkills as discoverSkillEntries,
+  partitionPlugins,
+} from './scripts/plugin-roster.mjs'
 
 /**
  * The checkout this script belongs to. `realpathSync` matters here: `--install`
@@ -208,78 +214,44 @@ exec node ${shellQuote(builtBin)} "$@"
   process.stdout.write(`run: dsh --profile ${values.profile}\n`)
 }
 
-/** Frontmatter name/description of a SKILL.md, or undefined when unparseable. */
-function parseSkillFrontmatter(path) {
-  const raw = readFileSync(path, 'utf8')
-  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)
-  if (match === null) return undefined
-  const data = {}
-  for (const line of match[1].split(/\r?\n/)) {
-    const kv = /^(\w[\w-]*):\s*(.*)$/.exec(line)
-    if (kv !== null && data[kv[1]] === undefined) data[kv[1]] = kv[2].replace(/^["']|["']$/g, '')
-  }
-  return data
-}
-
 /** List immediate children of a directory, sorted, or [] when absent. */
 function listDir(dir) {
   if (!existsSync(dir)) return []
   return readdirSync(dir).sort()
 }
 
-/** Discover bundle plugins: every plugins-repo subdir whose manifest declares dsh.bundle. */
-function discoverPlugins() {
-  const plugins = []
-  if (!existsSync(PLUGINS_REPO)) return plugins
-  for (const entry of listDir(PLUGINS_REPO)) {
-    const dir = join(PLUGINS_REPO, entry)
-    if (!lstatSync(dir).isDirectory()) continue
-    const manifest = readJson(join(dir, 'package.json'))
-    if (manifest === undefined || typeof manifest !== 'object') continue
-    if (typeof manifest.name !== 'string' || manifest.dsh?.bundle?.patch === undefined) continue
-    plugins.push({
-      kind: 'plugin',
-      name: manifest.name,
-      dir,
-      description: typeof manifest.description === 'string' ? manifest.description : '',
-    })
-  }
-  return plugins
-}
-
-/** Discover skills: immediate children of each skills-repo category that are skill bundles or flat .md skills. */
-function discoverSkills() {
-  const skills = []
-  if (!existsSync(SKILLS_REPO)) return skills
-  for (const category of listDir(SKILLS_REPO)) {
-    const categoryDir = join(SKILLS_REPO, category)
-    if (!lstatSync(categoryDir).isDirectory()) continue
-    for (const entry of listDir(categoryDir)) {
-      const path = join(categoryDir, entry)
-      const stat = lstatSync(path)
-      const isFlat = stat.isFile() && entry.endsWith('.md')
-      const isBundle = stat.isDirectory() && existsSync(join(path, 'SKILL.md'))
-      if (!isFlat && !isBundle) continue
-      const skillFile = isBundle ? join(path, 'SKILL.md') : path
-      const frontmatter = parseSkillFrontmatter(skillFile)
-      // Match the skill-filesystem provider: a candidate without a frontmatter
-      // name and description is not a usable skill.
-      if (frontmatter === undefined || typeof frontmatter.name !== 'string' || frontmatter.name === ''
-        || typeof frontmatter.description !== 'string' || frontmatter.description === '') {
-        continue
-      }
-      const name = frontmatter.name
-      skills.push({
-        kind: 'skill',
-        name,
-        category,
-        dir: isBundle ? path : categoryDir,
-        file: skillFile,
-        description: frontmatter?.description ?? '',
-      })
-    }
-  }
-  return skills
+/**
+ * Discover bundle plugins and skills from the roster module, which the shipping
+ * paths share.
+ *
+ * `$DSH_PLUGINS_REPO` and `$DSH_SKILLS_REPO` stay in force: they are handed
+ * to the roster as the trees to read, so pointing them elsewhere still decides
+ * what this manager manages.
+ *
+ * The roster reports an excluded plugin directory that is present rather than
+ * skipping it silently: a dev checkout keeping `crescendo-attacker` or
+ * `_security-review` beside the real plugins must say so, because the same
+ * directory is the one thing a shipped build may never carry.
+ * @returns {{plugins: object[], skills: object[]}} discovered entries in the manager's row shape.
+ */
+function discoverEntries() {
+  const discovered = partitionPlugins(discoverPluginEntries(CHECKOUT, { roots: [PLUGINS_REPO] }))
+  if (discovered.excluded.length > 0) process.stdout.write(`${describeExclusions(discovered.excluded)}\n`)
+  const plugins = discovered.shipped.map((plugin) => ({
+    kind: 'plugin',
+    name: plugin.packageName,
+    dir: plugin.dir,
+    description: readJson(join(plugin.dir, 'package.json'))?.description ?? '',
+  }))
+  const skills = discoverSkillEntries(CHECKOUT, { skillsRoot: SKILLS_REPO }).map((skill) => ({
+    kind: 'skill',
+    name: skill.name,
+    category: skill.category,
+    dir: skill.dir,
+    file: skill.file,
+    description: skill.description,
+  }))
+  return { plugins, skills }
 }
 
 /** Current profile manifest, defaulting to the shipped shape when absent. */
@@ -504,8 +476,7 @@ async function pick(entries) {
   })
 }
 
-const plugins = discoverPlugins()
-const skills = discoverSkills()
+const { plugins, skills } = discoverEntries()
 const entries = [...plugins, ...skills]
 const manifest = currentManifest()
 const installedBundles = new Set(manifest.dsh?.profile?.bundles ?? [])

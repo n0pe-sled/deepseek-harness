@@ -96,12 +96,14 @@ harness root that `--install` and `--ensure-deps` read.
 
 ## What is deliberately not in the checkout
 
-`plugins/crescendo-attacker/` holds the Crescendo attacker plugin, excluded
-from this migration on purpose and not yet its own repository.
-`plugins/_security-review/` is local scratch holding extracted tarballs and review
-artifacts, about 157 MB, and is never committed.
-
-Both remain untracked working copies, and neither is reachable from a clone.
+Three plugin directories are excluded from every plugin roster: this checkout, a
+profile synced by `dsh-manage`, and the closure the desktop app ships. They are
+`crescendo-attacker` (the Crescendo attacker plugin, not its own repository) and
+`_security-review` (local scratch holding extracted tarballs and review artifacts),
+neither of which is committed, plus `web-search-searxng`, which is no longer a
+submodule. Every roster lists them by name and reports one that is present rather
+than silently including it, so a scratch directory that gains a manifest can never
+reach a shipped build.
 
 ## Plugin build output
 

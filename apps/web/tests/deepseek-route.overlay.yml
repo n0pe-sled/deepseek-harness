@@ -1,0 +1,16 @@
+# Loader overlay for the real-host smoke (`dsh web --patch`): mount the DeepSeek
+# adapter and pin it as this deployment's default model.
+#
+# The shipped base bundle pre-installs no model provider and pins no default, and
+# these scenarios reach a mock provider through `DEEPSEEK_BASE_URL`, so without this
+# layer every prompt would be refused with `model-unavailable` before the mock saw a
+# request. This is the layer a deployment that wants the DeepSeek route mounts in
+# its own profile, and `@deepseek-ai/dsh-llm-deepseek` stays in the base bundle's
+# closure so the row resolves by name.
+- insert:
+    - id: llm-deepseek
+      name: '@deepseek-ai/dsh-llm-deepseek'
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash

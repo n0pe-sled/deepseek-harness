@@ -1,6 +1,8 @@
 ---
 name: dsh-plugin-authoring
 description: Use when authoring a plugin package outside the deepseek-harness repo (node half, browser client half, or both) — covers the bundle/profile installation model, the real client-bundle contract, and the deltas between the published plugin docs' sample code and the shipped harness
+disable-model-invocation: true
+user-invocable: false
 ---
 
 # Authoring a Third-Party dsh Plugin
