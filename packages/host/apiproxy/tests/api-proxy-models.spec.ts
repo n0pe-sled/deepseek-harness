@@ -478,6 +478,38 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('reports an unselected session as null and refuses its prompt', async () => {
+    // The shipped product pins no default model, so this is the state a session
+    // created against it is in. Reporting null is what makes the picker ask for a
+    // selection instead of naming a model nobody serves.
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, { defaultModelSelection: () => undefined, cwd: '/tmp' })
+
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    expect(catalog.current).toBeNull()
+    expect(catalog.routable).toBe(false)
+
+    const refused = await api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'hi' }],
+    }))
+    expect(refused.result).toEqual({
+      ok: false,
+      error: {
+        code: 'model-unavailable',
+        message: 'no model is selected for this session; select one before sending a prompt',
+        details: {},
+      },
+    })
+
+    // Naming a served route is what turns the same session routable, so the
+    // refusal above is the unselected state rather than a broken session.
+    expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
+    })))
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).routable).toBe(true)
+    await ctx.fiber.dispose()
+  })
+
   it('serves a session and its catalog when the stored default names a route that is gone', async () => {
     const { ctx, sessionId } = await harness()
     const api = createApiProxy(ctx, {

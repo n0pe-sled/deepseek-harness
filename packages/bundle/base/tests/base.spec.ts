@@ -41,6 +41,35 @@ describe('dsh-base bundle', () => {
     expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-subagent-claude-code')
   })
 
+  it('pre-installs no model provider and composes no web capability', () => {
+    // The shipped product's own composition choice, and the one a deployment
+    // overrides in its own layer: a mounted provider or a pinned default pair here
+    // would put a model in front of a user who never chose one, and a composed web
+    // capability would send their queries and key to a third party. The packages
+    // stay in the closure, so a deployment mounting either row still resolves it.
+    const root = fileURLToPath(new URL('..', import.meta.url))
+    const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    const parsed = yaml.load(
+      readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
+      { schema: entryListSchema },
+    )
+    if (!Array.isArray(parsed)) throw new TypeError('base patch must parse to a patch list')
+    const rows = (parsed as { insert?: { id?: string; config?: Record<string, unknown> }[] }[])
+      .flatMap(patch => patch.insert ?? [])
+    expect(rows.filter(row => row.id === 'llm-deepseek')).toEqual([])
+    const webRows = ['web', 'web-search-deepseek', 'tool-web']
+    expect(rows.filter(row => row.id !== undefined && webRows.includes(row.id))).toEqual([])
+    // Present, and naming no pair: the row is what a deployment pins its own
+    // default on, so its absence would be a different bug than its being pinned.
+    const defaultModel = rows.filter(row => row.id === 'agent-default-model')
+    expect(defaultModel).toHaveLength(1)
+    expect(defaultModel[0]?.config ?? {}).toEqual({})
+    expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-llm-deepseek')
+    expect(manifest.dependencies).not.toHaveProperty('@deepseek-ai/dsh-web-search-deepseek')
+  })
+
   it('gates each shell stack by platform with a symmetric disabled expression', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const parsed = yaml.load(
