@@ -6,6 +6,18 @@ import { pathToFileURL } from 'node:url'
 
 import config from './config.json' with { type: 'json' }
 
+// Project coordinates are workspace state rather than repository content, and the
+// runtime event is what proves which repository the check is running against: a
+// fork that syncs workflows without this override asks the upstream repository
+// for its own pull requests and reads 404 from an object that exists here. The
+// Projects v2 board number stays a repository choice, because GitHub's board
+// belongs to the organization it was created in.
+const [runtimeOrganization, runtimeRepository] = (process.env.GITHUB_REPOSITORY ?? '').split('/')
+if (runtimeOrganization && runtimeRepository) {
+  config.organization = runtimeOrganization
+  config.repository = runtimeRepository
+}
+
 const API_VERSION = '2026-03-10'
 const BODY_LIMIT = 50
 const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
