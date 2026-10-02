@@ -28,6 +28,7 @@ import type {
 import type { SessionNode, SessionOrderBy } from './tree.ts'
 import { deriveFlat, deriveGroups, derivePinned, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+import { SessionRenameDialog } from './SessionRenameDialog.tsx'
 import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -1056,16 +1057,15 @@ export function WorkspaceBrowser({
     })
   }
 
-  // Session rename dialog (same browser-owned pattern as workspace rename;
-  // sessions have no client-side name-conflict rule — the host normalizes).
+  // Session rename dialog (the shared SessionRenameDialog component; each
+  // section that shows session rows owns the target state behind it).
   // Unlike workspace rename, an unchanged title is NOT blocked: confirming
   // the current automatic title is the gesture that pins it.
   const [sessionRenameTarget, setSessionRenameTarget] = useState<{ sessionId: SessionNode['id']; currentTitle: string } | null>(null)
   const [sessionRenameDraft, setSessionRenameDraft] = useState('')
   const [sessionRenaming, setSessionRenaming] = useState(false)
   const [sessionRenameError, setSessionRenameError] = useState<string | null>(null)
-  const sessionRenameTrimmed = sessionRenameDraft.trim()
-  const sessionRenameBlocked = sessionRenaming || sessionRenameTrimmed === '' || sessionRenameTarget === null
+  const sessionRenameBlocked = sessionRenaming || sessionRenameDraft.trim() === '' || sessionRenameTarget === null
   const closeSessionRename = () => {
     if (sessionRenaming) return
     setSessionRenameTarget(null)
@@ -1075,7 +1075,7 @@ export function WorkspaceBrowser({
     if (sessionRenameBlocked) return
     setSessionRenaming(true)
     setSessionRenameError(null)
-    renameSession(sessionRenameTarget.sessionId, sessionRenameTrimmed).then(() => {
+    renameSession(sessionRenameTarget.sessionId, sessionRenameDraft.trim()).then(() => {
       setSessionRenaming(false)
       setSessionRenameTarget(null)
     }).catch((reason: unknown) => {
@@ -1313,37 +1313,17 @@ export function WorkspaceBrowser({
         {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
       </Modal>
 
-      <Modal
-        open={sessionRenameTarget !== null}
+      <SessionRenameDialog
+        target={sessionRenameTarget}
+        draft={sessionRenameDraft}
+        renaming={sessionRenaming}
+        error={sessionRenameError}
+        t={t}
+
+        onDraft={(next) => { setSessionRenameDraft(next); setSessionRenameError(null) }}
         onClose={closeSessionRename}
-        closeLabel={t('close')}
-        title={t('rename.session.title')}
-        footer={(
-          <>
-            <Button variant="outline" disabled={sessionRenaming} onClick={closeSessionRename}>{t('cancel')}</Button>
-            <Button variant="primary" disabled={sessionRenameBlocked} onClick={confirmSessionRename}>{t('rename')}</Button>
-          </>
-        )}
-      >
-        <input
-          className={css.renameInput}
-          value={sessionRenameDraft}
-          aria-label={t('field.sessionName')}
-          autoFocus
-          disabled={sessionRenaming}
-          onFocus={(e) => { e.target.select() }}
-          onChange={(e) => { setSessionRenameDraft(e.target.value); setSessionRenameError(null) }}
-          onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !composingRef.current) {
-              e.preventDefault()
-              confirmSessionRename()
-            }
-          }}
-        />
-        {sessionRenameError !== null && <div className={css.renameError} role="alert">{sessionRenameError}</div>}
-      </Modal>
+        onConfirm={confirmSessionRename}
+      />
       <Modal
         open={deleteTarget !== null}
         onClose={closeDelete}

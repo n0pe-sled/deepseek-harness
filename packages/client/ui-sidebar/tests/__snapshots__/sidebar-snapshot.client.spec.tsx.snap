@@ -199,6 +199,14 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
       />
     </div>
     <div
+      class="activeArea"
+    >
+      <div
+        data-slot="sidebar.activeSessions"
+        style="display: contents;"
+      />
+    </div>
+    <div
       class="regionArea"
     >
       <div

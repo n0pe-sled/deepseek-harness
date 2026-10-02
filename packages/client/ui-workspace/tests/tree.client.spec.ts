@@ -3,7 +3,7 @@ import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  deriveFlat, deriveGroups, derivePinned, deriveSearchResults, workspaceLabel, relativeTime,
+  deriveActive, deriveFlat, deriveGroups, derivePinned, deriveSearchResults, workspaceLabel, relativeTime,
   UNGROUPED_KEY, UNGROUPED_LABEL,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
@@ -294,6 +294,43 @@ describe('derivePinned', () => {
       completed: true,
       blank: false,
     })
+  })
+})
+
+describe('deriveActive', () => {
+  it('keeps running and user-blocked sessions, newest update first', () => {
+    const running = { ...summary('running', 1), running: true }
+    const blocked = { ...summary('blocked', 3), pendingInteraction: 'approval' as const }
+    const both = { ...summary('both', 2), running: true, pendingInteraction: 'question' as const }
+    const sessions = list(running, summary('idle', 4), blocked, both)
+    const rows = deriveActive(sessions, noArchive)
+    // Recency, not the Host list order: the section is a live view.
+    expect(rows.map(row => row.id)).toEqual([sid('blocked'), sid('both'), sid('running')])
+  })
+
+  it('drops archived, subagent-origin, and non-selected blank rows from the section', () => {
+    const current = { ...summary('current-blank', 5), blank: true, running: true }
+    const stale = { ...summary('stale-blank', 4), blank: true, running: true }
+    const subagent = { ...summary('subagent', 3), origin: 'subagent' as const, running: true }
+    const sessions = {
+      ...list(
+        current, stale, subagent,
+        { ...summary('archived', 2), running: true },
+      ),
+      current: current.id,
+    }
+    const rows = deriveActive(sessions, archived('archived'))
+    // A subagent run reaches the section as its parent's descendant count.
+    expect(rows.map(row => row.id)).toEqual([current.id])
+  })
+
+  it('projects descendant runs onto an active row without its own run', () => {
+    const parent = { ...summary('parent', 2), pendingInteraction: 'plan-review' as const }
+    const child = {
+      ...summary('child', 1), parentId: parent.id, origin: 'subagent' as const, running: true,
+    }
+    const rows = deriveActive(list(parent, child), noArchive)
+    expect(rows[0]).toMatchObject({ id: parent.id, running: false, runningSubagentCount: 1 })
   })
 })
 

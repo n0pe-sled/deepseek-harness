@@ -29,7 +29,9 @@
  * contract and the same occupant.
  */
 import type { HostDescriptionSource } from '@deepseek-ai/dsh-client-connection/client'
-import type { HostObservable, PropsHooks, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  HostObservable, PropsHooks, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
+} from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -152,6 +154,37 @@ export type WorkspaceBrowserProps =
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & PropsHooks<WorkspaceBrowserInjected['hooks']>
+  & PropsLocale<'workspace'>
+
+/**
+ * Active-sessions section-private injected share. It carries the actions a live
+ * row drives — the pin verbs stay with the store the registration mounts. A
+ * type alias supplies the implicit index signature the registry requires.
+ */
+export type ActiveSessionsInjected = {
+  /** Open a real Session. */
+  open: (sessionId: SessionId) => void
+  /** Fork a Session at its last completed turn and open the child. */
+  forkSession: (sessionId: SessionId) => void
+  /** Rename a Session (explicit user title; resolves on host acceptance). */
+  renameSession: (sessionId: SessionId, title: string) => Promise<void>
+  /**
+   * Archive a Session into the registry-global set: hidden from grouping
+   * surfaces, log and accounting slot retained.
+   */
+  archiveSession: (sessionId: SessionId) => Promise<void>
+}
+
+/**
+ * Full props of the active-sessions section: the shell region owner share
+ * (wide only), the viewing store holding the session-list facts the rows read
+ * and the pin verbs they write, the injected actions a row drives, and the
+ * locale seat.
+ */
+export type ActiveSessionsSectionProps =
+  PropsRuntime<'sidebar.activeSessions'>
+  & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
+  & ActiveSessionsInjected
   & PropsLocale<'workspace'>
 
 /**
