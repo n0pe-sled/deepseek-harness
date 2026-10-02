@@ -14,19 +14,24 @@
  *   1. The profile manifest is seeded only when it is absent, or when its bundle
  *      list is EXACTLY the shipped default. A list a person edited is never
  *      rewritten, because the edit is the record of what they chose.
- *   2. A skill entry is placed only where nothing is, or where a broken symlink
- *      from an earlier seed is. A real file or directory is somebody's.
+ *   2. A skill entry or a plugin link is placed only where nothing is, or where a
+ *      broken symlink from an earlier seed is. A real file or directory is
+ *      somebody's.
+ *
+ * A shipped plugin needs both halves of rule 1: the manifest entry names the bundle
+ * AND {@link linkShippedBundles} points the profile's `node_modules` at the
+ * closure, because the stock pair is the only one the installation resolves.
  *
  * Nothing else under the home is read or written: not `settings.yaml`, not
  * `credentials`, not a session, and not the profile's own patch layer.
  *
  * Usage (run by the closure's bundled Node runtime):
- *   node seed-home.mjs <home> [profile]
+ *   node seed-home.mjs <home> [closure-root]
  *
  * @module apps/desktop/scripts/seed-home
  */
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -88,6 +93,56 @@ function sameBundles(left, right) {
 }
 
 /**
+ * The bundle names a profile must resolve for itself rather than from the
+ * installation: every shipped plugin. The stock pair resolves through the install
+ * anchor, while a fork plugin exists only in the closure, so a profile that names one
+ * without a link to it fails to boot with "Cannot find package".
+ * @param bundles - the shipped bundle list from {@link shippedBundles}.
+ * @returns the bundle names that need a profile-local link.
+ */
+export function closureBundles(bundles) {
+  return bundles.filter((name) => !STOCK_BUNDLES.includes(name))
+}
+
+/**
+ * Link every shipped plugin bundle into one home's profile.
+ *
+ * The link lives at `<profile>/node_modules/<name>` and points into the closure,
+ * which is the shape `dsh plugin --profile web add <dir>` writes and the shape the
+ * sandbox image seeds. Node resolves the Loader's bare entry import through it, and
+ * the plugin's own `@deepseek-ai/*` peers then resolve from the closure the link
+ * points into, because Node resolves a linked module's realpath.
+ *
+ * A link whose target is gone is replaced, which is what a home seeded from a
+ * development closure needs once a packaged app seeds the same home: the recorded
+ * path is the staging machine's. A real file or directory there is somebody's, and a
+ * bundle whose closure carries nothing is reported rather than linked.
+ *
+ * @param home - the harness home to seed.
+ * @param bundles - the shipped bundle list from {@link shippedBundles}.
+ * @param closureRoot - the closure root holding `node_modules/<name>`.
+ * @returns what the linking wrote and skipped.
+ */
+export function linkShippedBundles(home, bundles, closureRoot) {
+  const linked = []
+  const missing = []
+  for (const name of closureBundles(bundles)) {
+    const from = join(closureRoot, 'node_modules', ...name.split('/'))
+    if (!existsSync(from)) {
+      missing.push(name)
+      continue
+    }
+    const dest = join(home, 'profiles', 'web', 'node_modules', ...name.split('/'))
+    if (!skillEntryReplaceable(dest)) continue
+    if (lstatSync(dest, { throwIfNoEntry: false }) !== undefined) rmSync(dest, { force: true })
+    mkdirSync(dirname(dest), { recursive: true })
+    symlinkSync(from, dest)
+    linked.push(name)
+  }
+  return { linked, missing }
+}
+
+/**
  * Seed one home's web profile from the shipped bundle list.
  *
  * The write is a temp-then-rename in the profile directory, which publishes the
@@ -96,11 +151,17 @@ function sameBundles(left, right) {
  * without a lock because only a manifest that still lists exactly the shipped
  * default is replaced, so two seeds of the same closure write the same bytes.
  *
+ * A shipped plugin is also declared as a `link:` dependency on its own closure path,
+ * which is what {@link linkShippedBundles} points the profile's node_modules at. The
+ * stock pair is not declared: the install anchor already resolves it, and a
+ * dependency no installation provides would be an unresolvable specifier.
+ *
  * @param home - the harness home to seed.
  * @param bundles - the shipped bundle list from {@link shippedBundles}.
+ * @param closureRoot - the closure root the profile's links point into.
  * @returns whether the manifest was written.
  */
-export function seedProfileManifest(home, bundles) {
+export function seedProfileManifest(home, bundles, closureRoot) {
   const dir = join(home, 'profiles', 'web')
   const path = join(dir, 'package.json')
   let current
@@ -120,9 +181,12 @@ export function seedProfileManifest(home, bundles) {
     ...(current ?? {}),
     name: typeof current?.name === 'string' ? current.name : `dsh-profile-${basename(dir)}`,
     private: true,
-    // No dependencies: the closure carries every bundle, so the installation
-    // anchor resolves all of them and no package manager runs on this machine.
-    dependencies: current?.dependencies ?? {},
+    dependencies: {
+      ...(current?.dependencies ?? {}),
+      ...Object.fromEntries(closureBundles(bundles).map(
+        name => [name, `link:${join(closureRoot, 'node_modules', ...name.split('/'))}`],
+      )),
+    },
     dsh: {
       ...(current?.dsh ?? {}),
       profile: { ...(current?.dsh?.profile ?? {}), bundles: [...bundles] },
@@ -201,16 +265,29 @@ export function seedSkills(home, closureRoot, skills) {
  * @returns what the seed wrote and skipped.
  */
 export function seedHome(home, closureRoot) {
-  const meta = readHarnessMeta(closureRoot)
+  // Both halves of the seed record the closure path in the home: the manifest as a
+  // `link:` specifier and each plugin link as its target. A relative path would
+  // resolve against the profile directory instead of the caller's, so the closure root
+  // is absolute here rather than at each write.
+  const root = resolve(closureRoot)
+  const meta = readHarnessMeta(root)
   const bundles = shippedBundles(meta)
   const skills = Array.isArray(meta?.skills) ? meta.skills.filter((name) => typeof name === 'string') : []
   const manifestWritten = bundles.length > STOCK_BUNDLES.length
-    ? seedProfileManifest(home, bundles)
+    ? seedProfileManifest(home, bundles, root)
     : false
+  // The links are written whether or not this run wrote the manifest: a home whose
+  // manifest a person edited keeps its own list, and the links for the shipped
+  // plugins are harmless beside it.
+  const { linked, missing } = linkShippedBundles(home, bundles, root)
+  if (missing.length > 0) {
+    process.stderr.write(`seed-home: the closure carries no package for ${missing.join(', ')}\n`)
+  }
   return {
     profile: join(home, 'profiles', 'web'),
     manifestWritten,
-    skills: seedSkills(home, closureRoot, skills),
+    linked,
+    skills: seedSkills(home, root, skills),
   }
 }
 
@@ -230,6 +307,7 @@ export function runCli(argv) {
   const result = seedHome(absoluteHome, closureRoot)
   const summary = [
     result.manifestWritten ? `profile manifest -> ${result.profile}` : `profile manifest unchanged at ${result.profile}`,
+    `${String(result.linked.length)} plugin link(s) -> ${join(result.profile, 'node_modules')}`,
     `${String(result.skills.length)} skill(s) -> ${join(absoluteHome, 'skills')}`,
   ]
   process.stdout.write(`seed-home: ${summary.join(', ')}\n`)

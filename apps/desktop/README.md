@@ -111,8 +111,13 @@ provisioned remote runs it on the far side, so both apply identical rules.
 The profile manifest is seeded only when it is absent, or when its bundle list is
 **exactly** `['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']`. A list a
 person edited is never rewritten, because the edit is the record of what they chose.
-Skills are placed only where nothing is, or where an earlier seed left a dangling
-symlink; a real file or directory is somebody's. Nothing else under the home is
+Each shipped plugin is also linked into `<profile>/node_modules/<name>` pointing at its
+package inside the closure, and declared on that path as a `link:` dependency: naming a
+bundle is not enough, because the stock pair is the only one the installation anchor
+resolves and a name nothing resolves fails the boot with `Cannot find package`. The link
+also carries the plugin's `@deepseek-ai/*` peers, which resolve from the closure the
+link points into. Skills are placed only where nothing is, or where an earlier seed left a
+dangling symlink; a real file or directory is somebody's. Nothing else under the home is
 read or written: not `settings.yaml`, not `credentials`, not a session, and not the
 profile's own patch layer.
 
