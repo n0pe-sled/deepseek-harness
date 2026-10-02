@@ -87,19 +87,26 @@ afterEach(async () => {
   renameControl.remainingFailures = 0
 })
 
+/** Boot options for one composition: the bind host, the chooser's requested interaction, and a surface that fails to import. */
+interface CompositionOptions {
+  bindHost?: '127.0.0.1' | '0.0.0.0'
+  interaction?: 'browse' | 'native'
+  failSurface?: boolean
+}
+
 /** Write a two-row cordis.yml (webserver + chooser), then boot it through the real Loader. */
-async function loadComposition(
-  bindHost: '127.0.0.1' | '0.0.0.0',
-  options: { failSurface?: boolean } = {},
-): Promise<{ ctx: Context; configPath: string }> {
+async function loadComposition(options: CompositionOptions = {}): Promise<{ ctx: Context; configPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-directory-picker-auto-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
-    `    host: '${bindHost}'`,
+    `    host: '${options.bindHost ?? '127.0.0.1'}'`,
     '    port: 0',
     `- name: '${AUTO}'`,
+    ...(options.interaction === undefined
+      ? []
+      : ['  config:', `    interaction: ${options.interaction}`]),
     '',
   ].join('\n'))
 
@@ -139,9 +146,9 @@ function entryNames(ctx: Context): string[] {
 }
 
 /**
- * Force every signal of an attended host on any platform: no SSH launch, a
- * display, and a PATH holding one executable chooser binary so the real
- * probe resolves identically on hosts with and without zenity/kdialog.
+ * Force every signal of an attended host on any platform for a `native` request:
+ * no SSH launch, a display, and a PATH holding one executable chooser binary so
+ * the real probe resolves identically on hosts with and without zenity/kdialog.
  */
 function stubAttendedHost(): void {
   fakeBin = mkdtempSync(join(tmpdir(), 'dsh-picker-bin-'))
@@ -159,20 +166,19 @@ describe('real Loader composition', () => {
   // The 60s budget covers this file's static imports (webserver plus both
   // backend node halves through tsx), which dominate on cold caches; the
   // Loader itself resolves nothing here — `loader.internal` is a module map.
-  it('mounts the native backend for an attended loopback host and unmounts it on disposal', { timeout: 60_000 }, async () => {
-    stubAttendedHost()
-    const { ctx, configPath } = await loadComposition('127.0.0.1')
+  it('mounts the browse backend by default and unmounts it on disposal', { timeout: 60_000 }, async () => {
+    const { ctx, configPath } = await loadComposition()
 
     const unloaded = [...ctx.loader.entries()]
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    expect(entryNames(ctx)).toContain(NATIVE)
-    expect(entryNames(ctx)).toContain(NATIVE_SURFACE)
-    expect(entryNames(ctx)).not.toContain(BROWSE)
-    expect(entryNames(ctx)).not.toContain(BROWSE_SURFACE)
+    expect(entryNames(ctx)).toContain(BROWSE)
+    expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
+    expect(entryNames(ctx)).not.toContain(NATIVE)
+    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
     const picker = ctx.get('directoryPicker') as DirectoryPicker
-    expect(picker.capability().kind).toBe('native')
+    expect(picker.capability().kind).toBe('browse')
     // The mounted row lives in the Loader's in-memory root tree only — the
     // booted config file must never gain the resolved backend row.
     expect(await readFile(configPath, 'utf8')).not.toContain(NATIVE)
@@ -182,8 +188,8 @@ describe('real Loader composition', () => {
     // moment dispose() settles, with no further loader await.
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     await autoEntry.fiber!.dispose()
-    expect(entryNames(ctx)).not.toContain(NATIVE)
-    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
+    expect(entryNames(ctx)).not.toContain(BROWSE)
+    expect(entryNames(ctx)).not.toContain(BROWSE_SURFACE)
     expect(ctx.get('directoryPicker')).toBeUndefined()
     // Self-disposing an include-tree entry persists `disabled: true` (loader
     // behavior, not the chooser's); await that debounced write so it cannot
@@ -193,13 +199,25 @@ describe('real Loader composition', () => {
       async () => await readFile(configPath, 'utf8'),
       { timeout: 15_000 },
     ).toContain('disabled: true')
-    expect(await readFile(configPath, 'utf8')).not.toContain(NATIVE)
+    expect(await readFile(configPath, 'utf8')).not.toContain(BROWSE)
   })
 
-  it('mounts the browse backend under an SSH launch', { timeout: 60_000 }, async () => {
+  it('mounts the native backend for a pinned native interaction on an attended host', { timeout: 60_000 }, async () => {
+    stubAttendedHost()
+    const { ctx } = await loadComposition({ interaction: 'native' })
+
+    expect(entryNames(ctx)).toContain(NATIVE)
+    expect(entryNames(ctx)).toContain(NATIVE_SURFACE)
+    expect(entryNames(ctx)).not.toContain(BROWSE)
+    expect(entryNames(ctx)).not.toContain(BROWSE_SURFACE)
+    const picker = ctx.get('directoryPicker') as DirectoryPicker
+    expect(picker.capability().kind).toBe('native')
+  })
+
+  it('mounts the browse backend for a pinned native interaction under an SSH launch', { timeout: 60_000 }, async () => {
     stubAttendedHost()
     vi.stubEnv('SSH_CONNECTION', '10.0.0.2 55 10.0.0.9 22')
-    const { ctx } = await loadComposition('127.0.0.1')
+    const { ctx } = await loadComposition({ interaction: 'native' })
 
     expect(entryNames(ctx)).toContain(BROWSE)
     expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
@@ -209,10 +227,10 @@ describe('real Loader composition', () => {
     expect(picker.capability().kind).toBe('browse')
   })
 
-  it('mounts the browse backend when a loopback-equivalent remote origin is declared', { timeout: 60_000 }, async () => {
+  it('mounts the browse backend for a pinned native interaction when a loopback-equivalent remote origin is declared', { timeout: 60_000 }, async () => {
     stubAttendedHost()
     vi.stubEnv('DSH_WEB_LOOPBACK_ORIGINS', 'dsh.example.ts.net')
-    const { ctx } = await loadComposition('127.0.0.1')
+    const { ctx } = await loadComposition({ interaction: 'native' })
 
     expect(entryNames(ctx)).toContain(BROWSE)
     expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
@@ -222,9 +240,9 @@ describe('real Loader composition', () => {
     expect(picker.capability().kind).toBe('browse')
   })
 
-  it('mounts the browse backend for an all-interfaces bind even on an attended host', { timeout: 60_000 }, async () => {
+  it('mounts the browse backend for a pinned native interaction on an all-interfaces bind', { timeout: 60_000 }, async () => {
     stubAttendedHost()
-    const { ctx } = await loadComposition('0.0.0.0')
+    const { ctx } = await loadComposition({ bindHost: '0.0.0.0', interaction: 'native' })
 
     expect(entryNames(ctx)).toContain(BROWSE)
     expect(entryNames(ctx)).toContain(BROWSE_SURFACE)
@@ -233,27 +251,25 @@ describe('real Loader composition', () => {
   })
 
   it('unmounts the backend when the surface entry fails to load', { timeout: 60_000 }, async () => {
-    stubAttendedHost()
-    await expect(loadComposition('127.0.0.1', { failSurface: true })).rejects.toThrow(/surface import failed/)
+    await expect(loadComposition({ failSurface: true })).rejects.toThrow(/surface import failed/)
 
     // Setup owns both entries until it returns its disposer, so a failed surface
     // must take the mounted backend with it: otherwise a retry collides with the
     // directoryPicker registration this backend already made.
-    expect(entryNames(context!)).not.toContain(NATIVE)
+    expect(entryNames(context!)).not.toContain(BROWSE)
     expect(context!.get('directoryPicker')).toBeUndefined()
   })
 
   it('tolerates the mounted entry being removed by the tree before the chooser unloads', { timeout: 60_000 }, async () => {
-    stubAttendedHost()
-    const { ctx, configPath } = await loadComposition('127.0.0.1')
+    const { ctx, configPath } = await loadComposition()
 
-    const backendEntry = [...ctx.loader.entries()].find(entry => entry.options.name === NATIVE)!
+    const backendEntry = [...ctx.loader.entries()].find(entry => entry.options.name === BROWSE)!
     await ctx.loader.remove(backendEntry.id)
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     renameControl.remainingFailures = 1
     await expect(autoEntry.fiber!.dispose()).resolves.not.toThrow()
-    expect(entryNames(ctx)).not.toContain(NATIVE)
-    expect(entryNames(ctx)).not.toContain(NATIVE_SURFACE)
+    expect(entryNames(ctx)).not.toContain(BROWSE)
+    expect(entryNames(ctx)).not.toContain(BROWSE_SURFACE)
     // Same self-dispose persistence as above: let the write land before teardown.
     await expect.poll(async () => await readFile(configPath, 'utf8')).toContain('disabled: true')
     expect(renameControl.injectedFailures).toBe(1)
@@ -262,8 +278,7 @@ describe('real Loader composition', () => {
   })
 
   it('reports a terminal debounced-write failure again to the teardown owner', { timeout: 60_000 }, async () => {
-    stubAttendedHost()
-    const { ctx } = await loadComposition('127.0.0.1')
+    const { ctx } = await loadComposition()
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     const include = [...ctx.loader.entries()]
       .find(entry => entry.options.name === 'cordis:include')?.subtree as Include | undefined
