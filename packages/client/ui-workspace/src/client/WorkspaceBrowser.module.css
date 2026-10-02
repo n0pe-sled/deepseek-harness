@@ -2,7 +2,9 @@
    header and the scrolling session list. Wide/rail variants ride the shell's
    fold state through the `wide` owner prop, so rail state renders only the two
    36x36 icon controls. The session-search trigger and the search box render in
-   the shell's own seats, styled here because this module owns them. */
+   the shell's own seats, styled here because this module owns them. The Active
+   Sessions section above that region shares the module, styled here so both
+   sidebar section labels render alike. */
 
 .root {
   --dsh-session-list-edge-inset: var(--dsh-sidebar-inline-padding);
@@ -37,6 +39,25 @@
 
 .iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Active Sessions section: the shell's region above the browsing region,
+   shaped like the pinned section that also renders outside a group. Both state
+   the padding longhand, because each label carries its own leading inset
+   rather than inheriting one from a header row. */
+.activeSection {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+
+.activeLabel {
+  padding-top: 2px;
+  padding-right: 8px;
+  padding-left: 8px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Section header: the title at the leading edge, the view and add actions at
@@ -306,9 +327,12 @@
 }
 
 .pinnedLabel {
-  padding: 2px 8px 6px;
-  font-size: 12px;
-  line-height: 16px;
+  padding-top: 2px;
+  padding-right: 8px;
+  padding-bottom: 6px;
+  padding-left: 8px;
+  font-size: 14px;
+  line-height: 20px;
   color: var(--dsw-alias-label-tertiary);
 }
 

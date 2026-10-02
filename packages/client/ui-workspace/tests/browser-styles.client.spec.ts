@@ -77,6 +77,29 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.groupSection + .groupSection')?.get('margin-top')).toBe('4px')
   })
 
+  it('labels the headerless section blocks like the section header label', () => {
+    // Active Sessions and Pinned render a section label with no header row, so
+    // each states the type, color, and leading inset the section label inside
+    // the browsing header gets — one from the header's own rule, one from the
+    // sidebar column. A stale class here renders the label unstyled and fails
+    // rather than drifting.
+    const active = declarations('.activeLabel')
+    const pinned = declarations('.pinnedLabel')
+    expect(active).toBeDefined()
+    expect(pinned).toBeDefined()
+    expect(declarations('.activeSection')?.get('margin-bottom')).toBe('8px')
+    for (const label of [active, pinned]) {
+      expect(label!.get('font-size')).toBe('14px')
+      expect(label!.get('line-height')).toBe('20px')
+      expect(label!.get('color')).toBe('var(--dsw-alias-label-tertiary)')
+      expect(label!.get('padding-left')).toBe('8px')
+    }
+    // The browsing header carries the same treatment on the row wrapping its own
+    // label; that row states the color and the label the line height.
+    expect(declarations('.sectionLabel')?.get('line-height')).toBe('20px')
+    expect(declarations('.sectionHeader')?.get('color')).toBe('var(--dsw-alias-label-tertiary)')
+  })
+
   it('draws drag targets as a leading chevron joined to the insertion line', () => {
     const listTopMarker = declarations('.listTopDropIndicator')
     const workspaceMarker = declarations('.workspaceDropBefore::before')
