@@ -250,21 +250,21 @@ The consumer is out of process â€” the Web GUI's Skills & MCP settings section â
 
 ```ts cordis-catalog
 /**
- * List every plugin the installed bundle carries.
- * @returns the discovered plugins, or an empty list when the root is unreadable.
- */
+   * List every plugin the installed bundle carries.
+   * @returns the discovered plugins, or an empty list when the root is unreadable.
+   */
 async list(): Promise<readonly DiscoveredPlugin[]>
 
 /**
- * List every MCP server the installed bundle declares.
- * @returns the declarations, each reporting whether it can be activated.
- */
+   * List every MCP server the installed bundle declares.
+   * @returns the declarations, each reporting whether it can be activated.
+   */
 async listMcpServers(): Promise<readonly DiscoveredMcpServer[]>
 
 /**
- * List every agent definition the installed bundle carries.
- * @returns the definitions with the public tool name each is reached through.
- */
+   * List every agent definition the installed bundle carries.
+   * @returns the definitions with the public tool name each is reached through.
+   */
 async listAgentDefinitions(): Promise<readonly DiscoveredAgentDefinition[]>
 ```
 

@@ -3296,7 +3296,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DiscoveredSkill',
-    declaration: 'export interface DiscoveredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly file: string;\n    readonly directory: string;\n    readonly modelInvocable: boolean;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
+    declaration: 'export interface DiscoveredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly file: string;\n    readonly directory: string;\n    readonly modelInvocable: boolean;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'Domain',

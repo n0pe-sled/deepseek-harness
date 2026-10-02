@@ -231,9 +231,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     )
   }
   const providerName = config.providerName ?? discovery.plugins[0]?.id
+  /* v8 ignore start -- `stringField` rejects an empty manifest name, and an
+     empty plugin list throws above, so no path reaches an absent id. */
   if (providerName === undefined) {
     throw new Error('agent-plugin-host: no plugin id is available to name the skill provider')
   }
+  /* v8 ignore stop */
   ctx.skills.registerProvider(() => new AgentPluginSkillProvider(ctx, providerName, config.bundleRoot))
   mountDelegationTools(ctx, discovery, config)
   ctx.plugin(AgentPluginDirectory, config.bundleRoot)
@@ -259,16 +262,30 @@ function mountDelegationTools(ctx: Context, discovery: BundleDiscovery, config: 
         continue
       }
       seen.add(definition.toolName)
-      ctx.plugin(toolSubagent, {
-        provider: config.subagentProvider ?? DEFAULT_SUBAGENT_PROVIDER,
-        toolName: definition.toolName,
-        backgroundMode: config.backgroundMode ?? 'continuable',
-        persona: definition.instructions,
-        ...definition.deniedTools.length === 0
-          ? {}
-          : { toolFilter: { deny: [...definition.deniedTools] } },
-      })
+      ctx.plugin(toolSubagent, delegationRowFor(definition, config))
     }
+  }
+}
+
+/**
+ * The delegation row one agent definition mounts.
+ *
+ * `deny` carries only the tools the definition must not reach, so a definition
+ * with no denial mounts the shipped consumer's own defaults rather than an empty
+ * filter, which `tools.restrict()` rejects outright.
+ * @param definition - the discovered definition to delegate through.
+ * @param config - the deployment's provider, background mode, and route defaults.
+ * @returns the `tool-subagent` row config for this definition.
+ */
+export function delegationRowFor(definition: DiscoveredAgentDefinition, config: Config): toolSubagent.Config {
+  return {
+    provider: config.subagentProvider ?? DEFAULT_SUBAGENT_PROVIDER,
+    toolName: definition.toolName,
+    backgroundMode: config.backgroundMode ?? 'continuable',
+    persona: definition.instructions,
+    ...definition.deniedTools.length === 0
+      ? {}
+      : { toolFilter: { deny: [...definition.deniedTools] } },
   }
 }
 
@@ -282,6 +299,7 @@ function toCandidate(skill: DiscoveredSkill, provider: string): SkillCandidate {
   return {
     name: skill.name,
     description: skill.description,
+    ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
     invocation: { modelInvocable: skill.modelInvocable, userInvocable: true },
     source: AGENT_PLUGIN_SKILL_SOURCE,
     provider,

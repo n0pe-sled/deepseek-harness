@@ -60,6 +60,8 @@ export interface DiscoveredSkill {
   readonly name: string
   /** Routing description from frontmatter. */
   readonly description: string
+  /** Extra routing guidance from frontmatter, when the body declares it. */
+  readonly whenToUse?: string
   /** Absolute path of the skill's `SKILL.md`. */
   readonly file: string
   /**
@@ -323,6 +325,7 @@ async function discoverSkill(directory: string, directoryName: string, problems:
   return {
     name,
     description,
+    ...optionalField('whenToUse', stringField(frontmatter.data, 'whenToUse')),
     file,
     directory: await realpath(directory),
     modelInvocable,
@@ -408,10 +411,12 @@ async function discoverAgentDefinition(
     problems.push(`agent definition "${stem}" is not valid TOML: ${errorMessage(error)}`)
     return undefined
   }
+  /* v8 ignore start -- A TOML document is a table by grammar, so this guard only fires if the parser starts returning a non-table. */
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     problems.push(`agent definition "${stem}" is not a TOML table`)
     return undefined
   }
+  /* v8 ignore stop */
   const table = parsed as Record<string, unknown>
   const name = stringField(table, 'name')
   const description = stringField(table, 'description')
@@ -577,6 +582,7 @@ function parseFrontmatter(raw: string): { data: Record<string, unknown>; body: s
     if (nextNewline < 0) return undefined
     lineStart = nextNewline + 1
   }
+  /* v8 ignore next -- Every loop iteration returns inside the body, so the loop cannot exit here. */
   return undefined
 }
 

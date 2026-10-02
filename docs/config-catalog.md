@@ -199,7 +199,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/plugin-host/agent-plugin-host/src/index.ts:81`](../packages/plugin-host/agent-plugin-host/src/index.ts)
+Source: [`packages/plugin-host/agent-plugin-host/src/index.ts:82`](../packages/plugin-host/agent-plugin-host/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 
