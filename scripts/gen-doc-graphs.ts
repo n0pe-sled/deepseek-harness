@@ -310,6 +310,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Discovers preset directories over trusted and user-authored roots and mounts one preset cordis.yml under an agent scope during creation, rejecting a row that never activates or that publishes into the root service realm.',
   },
   {
+    key: 'agentPlugins',
+    pkg: 'agent-plugin-host',
+    title: 'Installed agent-plugin bundles',
+    mode: 'core',
+    note: 'Reads one installed Claude Code / Codex bundle in place and exposes it for consumers that cannot import Host runtime types, so a person\'s Web GUI lists the declarations an install contributed.',
+  },
+  {
     key: 'commands',
     pkg: 'commands',
     title: 'Human command registry',

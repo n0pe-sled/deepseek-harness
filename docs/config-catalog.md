@@ -168,6 +168,39 @@ Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/cor
 
 Source: [`packages/core/agent-loop/src/index.ts:255`](../packages/core/agent-loop/src/index.ts)
 
+<a id="deepseek-aidsh-agent-plugin-host"></a>
+
+## `@deepseek-ai/dsh-agent-plugin-host`
+
+Requires: `skills`
+
+```ts config-catalog
+/** Plugin configuration, written into the row `dsh plugin install` appends. */
+export interface Config {
+  /**
+   * Absolute path of the installed bundle root: one plugin directory, or a
+   * marketplace directory holding `plugins/`.
+   */
+  bundleRoot: string
+  /**
+   * Provider name on `ctx.skills`. Omission uses the first discovered plugin's
+   * id, which is unique across a marketplace, so two installed plugins never
+   * collide unless a marketplace ships two plugins under one id.
+   */
+  providerName?: string
+  /** `ctx.subagents` provider every definition's delegation tool starts on. */
+  subagentProvider?: string
+  /**
+   * Whether a delegated child can be followed up and resumed. `continuable`
+   * matches the shipped presets and requires a provider with the
+   * `prepareContinuable` capability.
+   */
+  backgroundMode?: 'one-shot' | 'continuable'
+}
+```
+
+Source: [`packages/plugin-host/agent-plugin-host/src/index.ts:81`](../packages/plugin-host/agent-plugin-host/src/index.ts)
+
 <a id="deepseek-aidsh-agent-presets"></a>
 
 ## `@deepseek-ai/dsh-agent-presets`

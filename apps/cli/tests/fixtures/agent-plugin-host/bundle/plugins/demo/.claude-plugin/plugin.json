@@ -1,0 +1,8 @@
+{
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "Fixture agent plugin for the agent-plugin-host assembled snapshot.",
+  "author": {
+    "name": "fixture"
+  }
+}

@@ -38,6 +38,16 @@ switch (invocation.mode) {
     break
   }
   case 'plugin': {
+    // The agent-plugin verbs are claimed first because their arguments are not
+    // pnpm's: anything they do not claim falls through to the forwarder below.
+    const { runAgentPluginCommand } = await import('./agent-plugins.ts')
+    try {
+      const handled = runAgentPluginCommand(invocation.profile, invocation.args)
+      if (handled !== undefined) process.exit(handled)
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+      process.exit(1)
+    }
     const { runPlugin } = await import('./plugin.ts')
     process.exit(runPlugin(invocation.profile, invocation.args))
     break

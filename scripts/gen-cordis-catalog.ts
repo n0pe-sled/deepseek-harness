@@ -45,6 +45,7 @@ export { REGION_BEGIN, REGION_END }
 export const SERVICE_PAGE: Record<string, string> = {
   agentLoop: 'core.md',
   agentDefaultModel: 'core.md',
+  agentPlugins: 'skills.md',
   agentPresets: 'core.md',
   agents: 'core.md',
   apiProxy: 'typert.md',
@@ -549,6 +550,9 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentHandle: 'agent ownership handle is owned by packages/core/agent/README.md',
   AgentPreset: 'discovered preset record is owned by packages/preset/agent-presets/README.md',
   PresetMetadata: 'preset display text is owned by packages/preset/agent-presets/README.md',
+  DiscoveredPlugin: 'installed bundle record is owned by packages/plugin-host/agent-plugin-host/README.md',
+  DiscoveredMcpServer: 'declared MCP server record is owned by packages/plugin-host/agent-plugin-host/README.md',
+  DiscoveredAgentDefinition: 'upstream agent definition record is owned by packages/plugin-host/agent-plugin-host/README.md',
   BashEnvContributor: 'service-local extension type is owned by packages/shell/tool-bash/src/index.ts',
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/shell/tool-bash/src/index.ts',
   CompactionAgentContext: 'compaction service input is owned by packages/compaction/compaction/src/index.ts',
