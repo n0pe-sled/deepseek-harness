@@ -87,9 +87,8 @@ async function bootWeb(
     // The always-on reload chain waits for the browser roster and bound port
     // disabled above.
     { id: 'client-hmr', disabled: true },
-    // The shipped `-auto` chooser resolves its interaction from a running
-    // host and so waits for the webserver disabled above; the browse variant
-    // supplies `directoryPicker` without one.
+    // The shipped chooser row injects the webserver disabled above; the browse
+    // variant supplies `directoryPicker` without one.
     { id: 'directory-picker', disabled: true },
     { insert: [
       { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },

@@ -853,6 +853,35 @@ export interface Config {
 
 Source: [`packages/host/apiproxy/src/index.ts:41`](../packages/host/apiproxy/src/index.ts)
 
+<a id="deepseek-aidsh-host-directory-picker-auto"></a>
+
+## `@deepseek-ai/dsh-host-directory-picker-auto`
+
+Requires: `webServer` · `loader`
+
+```ts config-catalog
+/** Plugin config: the interaction this deployment's operators pick directories with. */
+export interface Config {
+  /**
+   * `browse` serves the in-app browser whose own path field and folder
+   * creation reach a host display nobody is sitting at — every client of this
+   * deployment is then served the same way, including a local one. `native`
+   * opens the OS chooser on the host display instead, and is downgraded to
+   * `browse` on a host that cannot serve it (see
+   * {@link resolveDirectoryPickerBackend}). Default: `browse`.
+   */
+  interaction: DirectoryPickerInteraction
+}
+
+/** The interaction a deployment asks for: the in-app browser, or the host display's OS chooser. */
+export type DirectoryPickerInteraction = DirectoryPickerBackendKind
+
+/** Concrete interaction backend the resolver chooses between. */
+export type DirectoryPickerBackendKind = 'native' | 'browse'
+```
+
+Source: [`packages/host/directory-picker-auto/src/index.ts:37`](../packages/host/directory-picker-auto/src/index.ts)
+
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
@@ -3270,7 +3299,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
 - `@deepseek-ai/dsh-fs-observation-policy` ([`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts))
 - `@deepseek-ai/dsh-goal-round-driver` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts))
-- `@deepseek-ai/dsh-host-directory-picker-auto` — requires `webServer` · `loader` ([`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-native` ([`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts))
 - `@deepseek-ai/dsh-host-plugin-inventory` — requires `loader` ([`packages/host/plugin-inventory/src/index.ts`](../packages/host/plugin-inventory/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))

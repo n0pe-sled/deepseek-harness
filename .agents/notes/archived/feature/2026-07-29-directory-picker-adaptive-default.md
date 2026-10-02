@@ -1,6 +1,7 @@
 # Agent Note: Adaptive default for the directory-picker interaction
 
 Status: implemented
+Archived: 2026-10-02
 
 ## Problem
 

@@ -90,11 +90,15 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
-    # Resolve bind host, SSH launch, loopback-equivalent remote origins, and
-    # display once at boot, then mount the matching dual-face directory picker.
-    # Mount -native or -browse directly in an overlay to pin the interaction.
+    # Resolve the picking interaction once at boot, then mount the matching
+    # dual-face chooser. `browse` is the default: the in-app browser serves
+    # every deployment, including one whose host display nobody sits at. A profile
+    # patch layer overrides this row to `interaction: native` for the OS chooser
+    # on the host display, which a host that cannot serve it downgrades back.
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
+      config:
+        interaction: browse
 
     # Read-only projection of current Loader entries for trusted client RPCs.
     - id: plugin-inventory

@@ -1,14 +1,15 @@
 /**
- * Adaptive chooser of the directory-picker seam: resolves the host's
- * situation once at boot (bind host, SSH launch, remote-browser origins,
- * display session, Linux chooser binary) and mounts the matching interaction
- * — `native` or `browse` — as real Loader entries in the in-memory root
- * tree. Each interaction is a
- * pair: the Host backend serving the seam capability and the client surface
- * occupying ui-workspace's directory-flow holes. Both arrive as ordinary
- * entries, so the surface is discovered exactly as a config-row's would be
- * and one resolved choice still swaps both faces; pinning an interaction
- * remains composing that pair directly instead of this row.
+ * Adaptive chooser of the directory-picker seam: the deployment's requested
+ * interaction decides between the in-app browser (`browse`, the default) and the
+ * OS chooser on the host display (`native`), and one boot-time sample of the
+ * host's situation (bind host, SSH launch, remote-browser origins, display
+ * session, Linux chooser binary) can still downgrade a requested `native` to
+ * `browse`. The matching interaction — `native` or `browse` — is mounted as
+ * real Loader entries in the in-memory root tree. Each interaction is a pair:
+ * the Host backend serving the seam capability and the client surface occupying
+ * ui-workspace's directory-flow holes. Both arrive as ordinary entries, so the
+ * surface is discovered exactly as a config-row's would be and one resolved
+ * choice still swaps both faces.
  * @module @deepseek-ai/dsh-host-directory-picker-auto
  */
 
@@ -16,18 +17,38 @@ import type { Context } from '@deepseek-ai/cordis'
 // Empty type imports carry the `loader` and `webServer` Context merges for the reads below.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import z from '@deepseek-ai/schemastery'
 import { canExecute, hasLinuxChooserBinary } from './probe.ts'
-import type { DirectoryPickerBackendKind } from './resolve.ts'
+import type { DirectoryPickerBackendKind, DirectoryPickerInteraction } from './resolve.ts'
 import { resolveDirectoryPickerBackend } from './resolve.ts'
 
 export { canExecute, hasLinuxChooserBinary } from './probe.ts'
-export type { DirectoryPickerBackendKind, DirectoryPickerEnv, DirectoryPickerHostFacts } from './resolve.ts'
+export type {
+  DirectoryPickerBackendKind, DirectoryPickerEnv, DirectoryPickerHostFacts, DirectoryPickerInteraction,
+} from './resolve.ts'
 export { resolveDirectoryPickerBackend } from './resolve.ts'
 
 /** Cordis plugin name. */
 export const name = 'directory-picker-auto'
 /** Required services: the effective bind host (`webServer`) and the entry tree the backend mounts into (`loader`). */
 export const inject = ['webServer', 'loader']
+
+/** Plugin config: the interaction this deployment's operators pick directories with. */
+export interface Config {
+  /**
+   * `browse` serves the in-app browser whose own path field and folder
+   * creation reach a host display nobody is sitting at — every client of this
+   * deployment is then served the same way, including a local one. `native`
+   * opens the OS chooser on the host display instead, and is downgraded to
+   * `browse` on a host that cannot serve it (see
+   * {@link resolveDirectoryPickerBackend}). Default: `browse`.
+   */
+  interaction: DirectoryPickerInteraction
+}
+
+export const Config: z<Config> = z.object({
+  interaction: z.union([z.const('browse'), z.const('native')]).default('browse'),
+})
 
 /**
  * Host backend package per resolved kind — fixed composition vocabulary, not a
@@ -54,14 +75,17 @@ export const SURFACE_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
 }
 
 /**
- * Resolve the interaction from one boot-time sample and mount its backend and
- * surface as Loader entries; the effect's disposer removes both entries and
- * joins their fibers' teardown, so unloading this plugin returns only after
- * both faces of the mounted interaction (and their dependents) quiesced.
+ * Resolve the interaction from the requested one plus one boot-time sample of the
+ * host facts, and mount its backend and surface as Loader entries; the effect's
+ * disposer removes both entries and joins their fibers' teardown, so unloading
+ * this plugin returns only after both faces of the mounted interaction (and their
+ * dependents) quiesced.
  * @param ctx - cordis context carrying the injected `webServer` and `loader`.
+ * @param config - resolved plugin config (schema defaults applied).
  */
-export async function apply(ctx: Context): Promise<void> {
-  const backend = resolveDirectoryPickerBackend({
+export async function apply(ctx: Context, config?: Config): Promise<void> {
+  // The Loader resolves schema defaults; hand-built test contexts may pass none.
+  const backend = resolveDirectoryPickerBackend(config?.interaction ?? 'browse', {
     bindHost: ctx.webServer.host,
     platform: process.platform,
     env: process.env,

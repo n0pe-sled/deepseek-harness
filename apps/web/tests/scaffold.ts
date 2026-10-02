@@ -434,17 +434,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
-    // The shipped directory-picker row is the -auto chooser, which resolves
-    // the interaction from the RUNNING host (display, SSH launch, bind). The
-    // lane's goldens are interaction-specific (workspace-management drives
-    // the in-app browse dialog), so pin -browse deterministically on every
-    // host: patch `name` is an assertion, not an override, hence the
-    // disable+insert pair.
-    { id: 'directory-picker', disabled: true },
-    { insert: [
-      { id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' },
-      { id: 'ui-directory-picker-browse', name: '@deepseek-ai/dsh-client-ui-directory-picker-browse' },
-    ] },
+    // The lane's goldens are interaction-specific (workspace-management drives
+    // the in-app browse dialog), so pin that interaction on the shipped -auto
+    // chooser row rather than relying on its default: patch `name` is an
+    // assertion, not an override, hence the pair.
+    { id: 'directory-picker', name: '@deepseek-ai/dsh-host-directory-picker-auto', config: { interaction: 'browse' } },
     ...options.agentPresets === undefined
       ? []
       // Never the derived harness-home root: a developer's own presets must not

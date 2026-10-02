@@ -4,9 +4,9 @@ import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { canExecute, hasLinuxChooserBinary } from '../src/probe.ts'
 import { resolveDirectoryPickerBackend } from '../src/resolve.ts'
-import type { DirectoryPickerHostFacts } from '../src/resolve.ts'
+import type { DirectoryPickerHostFacts, DirectoryPickerInteraction } from '../src/resolve.ts'
 
-/** Baseline facts that resolve to `native`; each case overrides one signal (darwin never consults `linuxChooser`). */
+/** Baseline facts of an attended loopback host; each case overrides one signal (darwin never consults `linuxChooser`). */
 const attended: DirectoryPickerHostFacts = {
   bindHost: '127.0.0.1',
   platform: 'darwin',
@@ -14,44 +14,54 @@ const attended: DirectoryPickerHostFacts = {
   linuxChooser: false,
 }
 
+/** Resolve one sample against the requested interaction. */
+const resolve = (interaction: DirectoryPickerInteraction, facts: DirectoryPickerHostFacts = attended) =>
+  resolveDirectoryPickerBackend(interaction, facts)
+
 describe('resolveDirectoryPickerBackend', () => {
-  it('resolves native for a loopback bind on a display platform', () => {
-    expect(resolveDirectoryPickerBackend(attended)).toBe('native')
-    expect(resolveDirectoryPickerBackend({ ...attended, platform: 'win32' })).toBe('native')
+  it('resolves browse for a browse request whatever the host could serve', () => {
+    expect(resolve('browse')).toBe('browse')
+    expect(resolve('browse', { ...attended, platform: 'win32' })).toBe('browse')
+    expect(resolve('browse', { ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: ':0' } })).toBe('browse')
   })
 
-  it('resolves browse for an all-interfaces bind regardless of other signals', () => {
-    expect(resolveDirectoryPickerBackend({ ...attended, bindHost: '0.0.0.0' })).toBe('browse')
+  it('resolves native for a native request on a loopback bind with a display platform', () => {
+    expect(resolve('native')).toBe('native')
+    expect(resolve('native', { ...attended, platform: 'win32' })).toBe('native')
   })
 
-  it('resolves browse under an SSH launch (either env marker)', () => {
-    expect(resolveDirectoryPickerBackend({ ...attended, env: { SSH_CONNECTION: '10.0.0.2 55 10.0.0.9 22' } })).toBe('browse')
-    expect(resolveDirectoryPickerBackend({ ...attended, env: { SSH_TTY: '/dev/pts/3' } })).toBe('browse')
+  it('falls back to browse for a native request on an all-interfaces bind', () => {
+    expect(resolve('native', { ...attended, bindHost: '0.0.0.0' })).toBe('browse')
   })
 
-  it('resolves browse when a proxy serves the GUI at a loopback-equivalent remote origin', () => {
-    expect(resolveDirectoryPickerBackend({ ...attended, env: { DSH_WEB_LOOPBACK_ORIGINS: 'dsh.example.ts.net' } })).toBe('browse')
-    expect(resolveDirectoryPickerBackend({
+  it('falls back to browse for a native request under an SSH launch (either env marker)', () => {
+    expect(resolve('native', { ...attended, env: { SSH_CONNECTION: '10.0.0.2 55 10.0.0.9 22' } })).toBe('browse')
+    expect(resolve('native', { ...attended, env: { SSH_TTY: '/dev/pts/3' } })).toBe('browse')
+  })
+
+  it('falls back to browse for a native request when a proxy serves the GUI at a loopback-equivalent remote origin', () => {
+    expect(resolve('native', { ...attended, env: { DSH_WEB_LOOPBACK_ORIGINS: 'dsh.example.ts.net' } })).toBe('browse')
+    expect(resolve('native', {
       ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: ':0', DSH_WEB_LOOPBACK_ORIGINS: 'dsh.example.ts.net' },
     })).toBe('browse')
   })
 
-  it('requires a display session and a chooser binary on linux', () => {
+  it('requires a display session and a chooser binary for a native request on linux', () => {
     const linux: DirectoryPickerHostFacts = { ...attended, platform: 'linux', linuxChooser: true }
-    expect(resolveDirectoryPickerBackend(linux)).toBe('browse')
-    expect(resolveDirectoryPickerBackend({ ...linux, env: { DISPLAY: ':0' } })).toBe('native')
-    expect(resolveDirectoryPickerBackend({ ...linux, env: { WAYLAND_DISPLAY: 'wayland-1' } })).toBe('native')
-    expect(resolveDirectoryPickerBackend({ ...linux, env: { DISPLAY: ':0' }, linuxChooser: false })).toBe('browse')
+    expect(resolve('native', linux)).toBe('browse')
+    expect(resolve('native', { ...linux, env: { DISPLAY: ':0' } })).toBe('native')
+    expect(resolve('native', { ...linux, env: { WAYLAND_DISPLAY: 'wayland-1' } })).toBe('native')
+    expect(resolve('native', { ...linux, env: { DISPLAY: ':0' }, linuxChooser: false })).toBe('browse')
   })
 
-  it('resolves browse on platforms the native backend cannot serve, display or not', () => {
-    expect(resolveDirectoryPickerBackend({ ...attended, platform: 'freebsd', env: { DISPLAY: ':0' }, linuxChooser: true })).toBe('browse')
-    expect(resolveDirectoryPickerBackend({ ...attended, platform: 'openbsd', env: { WAYLAND_DISPLAY: 'wayland-1' } })).toBe('browse')
+  it('falls back to browse for a native request on platforms the native backend cannot serve, display or not', () => {
+    expect(resolve('native', { ...attended, platform: 'freebsd', env: { DISPLAY: ':0' }, linuxChooser: true })).toBe('browse')
+    expect(resolve('native', { ...attended, platform: 'openbsd', env: { WAYLAND_DISPLAY: 'wayland-1' } })).toBe('browse')
   })
 
   it('treats blank env exports as unset', () => {
-    expect(resolveDirectoryPickerBackend({ ...attended, env: { SSH_CONNECTION: '', SSH_TTY: '', DSH_WEB_LOOPBACK_ORIGINS: '' } })).toBe('native')
-    expect(resolveDirectoryPickerBackend({
+    expect(resolve('native', { ...attended, env: { SSH_CONNECTION: '', SSH_TTY: '', DSH_WEB_LOOPBACK_ORIGINS: '' } })).toBe('native')
+    expect(resolve('native', {
       ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: '', WAYLAND_DISPLAY: '' },
     })).toBe('browse')
   })
