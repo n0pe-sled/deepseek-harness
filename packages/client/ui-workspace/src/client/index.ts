@@ -1,15 +1,16 @@
 /**
- * Workspace plugin, browser half. Four registrations: WorkspaceBrowser fills
+ * Workspace plugin, browser half. Five registrations: WorkspaceBrowser fills
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
+ * ActiveSessionsSection fills its `sidebar.activeSessions` region above that,
  * WorkspaceSearchToggle fills the shell's `sidebar.header.action` list beside the
  * New Session and settings controls, WorkspaceSearchBox fills the shell's
  * `sidebar.header.search` region under that row, and WorkspacePicker fills the
  * conversation hero's picker hole (`conversation.hero.workspace` — both hero
- * forms). The first three mount one store handle, so the region and both search
- * entries share one viewing state. All read real Host Workspaces through the
- * global useWorkspaces hook, and the browser and picker each declare their own
- * `single` directory-flow child hole for the composed picker package's client
- * half (see the contract module doc). Export discipline:
+ * forms). The first four mount one store handle, so the two sections and both
+ * search entries share one viewing state. All read real Host Workspaces through
+ * the global useWorkspaces hook, and the browser and picker each declare their
+ * own `single` directory-flow child hole for the composed picker package's
+ * client half (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -17,13 +18,17 @@ import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
+import type {
+  ActiveSessionsInjected, WorkspaceBrowserInjected, WorkspacePickerInjected,
+} from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
+import { ActiveSessionsSection } from './ActiveSessionsSection.tsx'
 import { WorkspaceBrowser, WorkspaceSearchBox, WorkspaceSearchToggle } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, type WorkspaceKey } from './locales.ts'
 
 export type {
+  ActiveSessionsInjected, ActiveSessionsSectionProps,
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
   WorkspaceSearchBoxProps, WorkspaceSearchToggleProps,
@@ -149,6 +154,37 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
     },
     WorkspaceSearchBox,
+  ))
+  // The active-session section fills the shell's wide-only region between that
+  // search box and the browsing region. It mounts the same store because its
+  // rows offer the same pin verb and read the same list, and carries its own
+  // injected share, so a live row drives no session search.
+  ctx.slots.inject('sidebar.activeSessions', () => ctx.slots.register(
+    {
+      name: 'sidebar.activeSessions',
+      store: workspaceViewStore,
+      inject: (): ActiveSessionsInjected => ({
+        open: (sessionId) => { ctx.sessions.open(sessionId) },
+        forkSession: (sessionId) => {
+          ctx.sessions.fork({ sessionId, increaseTitle: true })
+            .then((childId) => { ctx.sessions.open(childId) })
+            .catch(() => {
+              // Fork or child-rename failure keeps the current selection.
+            })
+        },
+        renameSession: async (sessionId, title) => {
+          // Row → session-face hop: rename is a per-session verb (ISession),
+          // not a list-service verb.
+          const session = ctx.sessions.binding(sessionId)?.session
+          if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
+          const result = await session.rename(title)
+          if (!result.ok) throw new Error(result.error.message)
+        },
+        archiveSession: async (sessionId) => { await ctx.workspaces.archiveSession(sessionId) },
+      }),
+      locale: NS,
+    },
+    ActiveSessionsSection,
   ))
   ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
     {

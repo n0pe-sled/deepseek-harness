@@ -3,11 +3,13 @@
  * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
  * owns column geometry (fold state machine, brand row), the control row (New
  * Session, the settings seat, `sidebar.header.action`) and the wide-only
- * `sidebar.header.search` region directly under it. The `sidebar.workspaces`
- * registrant (ui-workspace) owns the browsing region between that search
- * region and the foot; the foot carries `sidebar.footer.action` and, in the rail,
- * the settings seat. `sidebar.settings` is the settings seat (ui-settings),
- * which the shell renders in the control row when wide.
+ * `sidebar.header.search` region directly under it. Two wide-only regions fill
+ * the stack below that search region: `sidebar.activeSessions` (ui-workspace's
+ * live-session section) and, under it, `sidebar.workspaces` (ui-workspace's
+ * browsing region), which reaches down to the foot. The foot carries
+ * `sidebar.footer.action` and, in the rail, the settings seat.
+ * `sidebar.settings` is the settings seat (ui-settings), which the shell renders
+ * in the control row when wide.
  */
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
@@ -28,6 +30,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * package's `sidebar` entry; the shell supplies a generic text fallback.
      */
     'sidebar.brand.name': { kind: 'single'; scope: 'root'; owner: SidebarBrandNameOwnerProps }
+    /**
+     * The active-session region between the search region and the workspace
+     * browsing region, wide only. Declared by this package's 'sidebar' entry
+     * and registered by ui-workspace (declaring is claiming) with the live
+     * session rows; the shell renders no rail form of it, because a rail
+     * column has no room for a second list.
+     */
+    'sidebar.activeSessions': { kind: 'single'; scope: 'root'; owner: SidebarActiveSessionsOwnerProps }
     /**
      * The workspace/session browsing region: section header, the
      * grouped/flat session list, and every workspace dialog. Declared by this
@@ -88,6 +98,17 @@ export interface SidebarSectionOwnerProps {
 }
 
 /**
+ * Owner share of the active-session region. The occupant reads `wide` to
+ * render the full section and nothing on the rail, which the shell guarantees
+ * by unmounting the region; unlike the browser region there is no rail icon
+ * and therefore no expansion request.
+ */
+export interface SidebarActiveSessionsOwnerProps {
+  /** Shell fold-state output: wide renders the section, rail nothing. */
+  wide: boolean
+}
+
+/**
  * Owner share of the sidebar settings seat: the column display state the
  * occupant's trigger row must render against (wide row vs rail icon).
  */
@@ -142,6 +163,7 @@ export type SidebarRootComponentProps =
     | 'sidebar.brand.name'
     | 'sidebar.header.action'
     | 'sidebar.header.search'
+    | 'sidebar.activeSessions'
     | 'sidebar.workspaces'
     | 'sidebar.settings'
     | 'sidebar.footer.action'

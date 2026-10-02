@@ -1270,6 +1270,20 @@ describe('WorkspaceBrowser', () => {
     expect(row.hasAttribute('draggable')).toBe(false)
   })
 
+  it('renders no Active Sessions section: the shell region above owns it', () => {
+    mount({
+      useSessions: hook(sessionState([
+        { ...summary('alpha-s', 1), displayTitle: 'Running build', running: true },
+      ])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    // The section is the shell's own seat; a live Session renders only its
+    // grouped row here.
+    expect(screen.queryByRole('region', { name: 'Active Sessions' })).toBeNull()
+    expect(screen.getByText('Running build').closest('[role="treeitem"]')).toBeTruthy()
+  })
+
   it('pins and unpins a session from its row menu into the trailing Pinned section', () => {
     const sessions = sessionState([summary('alpha-s', 2), summary('beta-s', 1)])
     const b = mount({

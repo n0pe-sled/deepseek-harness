@@ -7,6 +7,7 @@ import { SidebarRoot } from './SidebarRoot.tsx'
 import { en, type SidebarKey } from './locales.ts'
 
 export type {
+  SidebarActiveSessionsOwnerProps,
   SidebarBrandMarkOwnerProps, SidebarBrandNameOwnerProps, SidebarFooterActionOwnerProps,
   SidebarHeaderActionOwnerProps, SidebarHeaderSearchOwnerProps, SidebarRootComponentProps,
   SidebarRootInjected, SidebarSectionOwnerProps, SidebarSettingsOwnerProps,
@@ -43,13 +44,15 @@ export function apply(ctx: ClientContext): void {
       name: 'sidebar',
       locale: NS,
       // The shell owns geometry and the control row; ui-workspace registers the
-      // browsing region (header, session list, workspace dialogs) and the search
-      // box under the controls, ui-settings registers the settings seat.
+      // browsing region (header, session list, workspace dialogs), the live-
+      // session region above it, and the search box under the controls,
+      // ui-settings registers the settings seat.
       children: {
         'sidebar.brand.mark': { kind: 'single', scope: 'root' },
         'sidebar.brand.name': { kind: 'single', scope: 'root' },
         'sidebar.header.action': { kind: 'list', scope: 'root' },
         'sidebar.header.search': { kind: 'single', scope: 'root' },
+        'sidebar.activeSessions': { kind: 'single', scope: 'root' },
         'sidebar.workspaces': { kind: 'single', scope: 'root' },
         'sidebar.settings': { kind: 'single', scope: 'root' },
         'sidebar.footer.action': { kind: 'list', scope: 'root' },

@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type {
-  SidebarFooterActionOwnerProps, SidebarHeaderActionOwnerProps, SidebarHeaderSearchOwnerProps,
-  SidebarRootComponentProps, SidebarSectionOwnerProps, SidebarSettingsOwnerProps,
+  SidebarActiveSessionsOwnerProps, SidebarFooterActionOwnerProps, SidebarHeaderActionOwnerProps,
+  SidebarHeaderSearchOwnerProps, SidebarRootComponentProps, SidebarSectionOwnerProps,
+  SidebarSettingsOwnerProps,
 } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
 import { en } from '../src/client/locales.ts'
@@ -30,6 +31,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
   let footerActionOwner: SidebarFooterActionOwnerProps | undefined
   let headerActionOwner: SidebarHeaderActionOwnerProps | undefined
   let headerSearchOwner: SidebarHeaderSearchOwnerProps | undefined
+  let activeSessionsOwner: SidebarActiveSessionsOwnerProps | undefined
   const brandMark = <span data-testid="custom-brand-mark">M</span>
   const brandName = <span data-testid="custom-brand-name">Custom Brand</span>
   let current = { collapsed, width }
@@ -40,7 +42,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
       startSession={startSession} toggleSidebar={toggleSidebar} t={t}
       renderSlot={((key: string, owner: SidebarFooterActionOwnerProps | SidebarSectionOwnerProps
         | SidebarSettingsOwnerProps | SidebarHeaderActionOwnerProps
-        | SidebarHeaderSearchOwnerProps) => {
+        | SidebarHeaderSearchOwnerProps | SidebarActiveSessionsOwnerProps) => {
         if (key === 'sidebar.brand.mark') return brandMark
         if (key === 'sidebar.brand.name') return brandName
         if (key === 'sidebar.settings') {
@@ -58,6 +60,10 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
         if (key === 'sidebar.header.search') {
           headerSearchOwner = owner
           return <div data-testid="header-search-seat" data-wide={owner.wide} />
+        }
+        if (key === 'sidebar.activeSessions') {
+          activeSessionsOwner = owner
+          return <div data-testid="active-sessions-seat" data-wide={owner.wide} />
         }
         regionOwner = owner as SidebarSectionOwnerProps
         return <div data-testid="region" data-wide={owner.wide} />
@@ -87,6 +93,10 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
     headerSearchOwner: () => {
       if (headerSearchOwner === undefined) throw new Error('header search owner not rendered')
       return headerSearchOwner
+    },
+    activeSessionsOwner: () => {
+      if (activeSessionsOwner === undefined) throw new Error('active sessions owner not rendered')
+      return activeSessionsOwner
     },
     rerender(next: Partial<typeof current>) {
       current = { ...current, ...next }
@@ -129,6 +139,7 @@ describe('SidebarRoot shell', () => {
     expect(b.footerActionOwner().wide).toBe(true)
     expect(b.headerActionOwner().wide).toBe(true)
     expect(b.headerSearchOwner().wide).toBe(true)
+    expect(b.activeSessionsOwner().wide).toBe(true)
     // Expanded: the request is a no-op (no accidental collapse).
     b.regionOwner().expandSidebar()
     expect(b.toggleSidebar).not.toHaveBeenCalled()
@@ -165,10 +176,12 @@ describe('SidebarRoot shell', () => {
     // Session stays as the rail's icon control.
     expect(screen.queryByTestId('header-search-seat')).toBeNull()
     expect(screen.queryByTestId('header-action-seat')).toBeNull()
+    expect(screen.queryByTestId('active-sessions-seat')).toBeNull()
     expect(screen.getByRole('button', { name: 'New session' })).toBeTruthy()
     b.rerender({ collapsed: false })
     expect(screen.getByTestId('header-search-seat')).toBeTruthy()
     expect(screen.getByTestId('header-action-seat')).toBeTruthy()
+    expect(screen.getByTestId('active-sessions-seat')).toBeTruthy()
   })
 
   it('keeps exactly one settings seat through the collapse flip', () => {

@@ -326,6 +326,37 @@ export function deriveFlat(
   return rows.map(session => sessionNode(session, descendants))
 }
 
+/**
+ * Derive the Active Sessions section rows: every visible Session the list
+ * reports as running or as blocked on a user interaction, newest update first.
+ * The section is a live view rather than an order authority, so it sorts by
+ * recency instead of the Host's manual order, and it never filters a visible
+ * Session out of its Workspace group.
+ *
+ * A Session leaves the section when its run ends or its interaction is answered.
+ * Subagent-origin children stay out under the ordinary visibility rule: their
+ * activity reaches the section through their parent's status instead, which
+ * reports the running descendants as `runningSubagentCount`.
+ * @param list - sessions list snapshot (`current` feeds the visibility rule).
+ * @param archivedSessionIds - registry-global archive set.
+ * @returns active rows, newest update first.
+ */
+export function deriveActive(
+  list: SessionListState,
+  archivedSessionIds: readonly SessionId[],
+): SessionNode[] {
+  const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
+  const summaries: SessionSummary[] = []
+  for (const summary of Object.values(list.byId)) {
+    if (!summary.running && summary.pendingInteraction === undefined) continue
+    if (!sessionVisible(summary, list.current, archived)) continue
+    summaries.push(summary)
+  }
+  summaries.sort(byRecency)
+  return summaries.map(summary => sessionNode(summary, descendants))
+}
+
 /** Relative-time bucket of a session row's trailing label. */
 export type RelativeTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' | 'years'
 

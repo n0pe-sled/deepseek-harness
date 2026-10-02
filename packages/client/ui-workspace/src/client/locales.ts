@@ -1,7 +1,8 @@
 /**
  * `workspace` namespace dictionaries: the browsing region (section header,
- * search box, tree rows, dialogs) and the pick/add flow. Runtime failure
- * messages (wire error strings) pass through untranslated by policy.
+ * search box, tree rows, dialogs), the active-session section above it, and the
+ * pick/add flow. Runtime failure messages (wire error strings) pass through
+ * untranslated by policy.
  */
 
 /** The workspace namespace key union. */
@@ -12,6 +13,7 @@ export const en = {
   'group.ungrouped': 'Ungrouped',
   'session.new': 'New Session',
   'section.workspaces': 'Workspaces',
+  'section.active': 'Active Sessions',
   'section.pinned': 'Pinned Sessions',
   'section.sessions': 'Sessions',
   'viewOptions.label': 'View options',

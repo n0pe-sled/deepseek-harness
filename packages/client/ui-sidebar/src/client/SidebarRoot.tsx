@@ -7,7 +7,8 @@
  * same top-down order) on one fade that ends with the slide. The rail's
  * settings seat only fades. Below the brand row the shell lays out the icon
  * control row (New Session, the settings seat, `sidebar.header.action`), the
- * `sidebar.header.search` region, the `sidebar.workspaces` browsing region and
+ * `sidebar.header.search` region, the `sidebar.activeSessions` region under it,
+ * the `sidebar.workspaces` browsing region and
  * the foot; besides New Session every seat in that stack is a registrant, and
  * the shell hands each one the wide flag (plus an expand request callback for
  * the browser).
@@ -187,6 +188,16 @@ export function SidebarRoot({
       {/* Search region: the workspace search box sits directly under the icon
           control row, wide only (the rail has no room for it). */}
       {wide && <div className={css.headerSearch}>{renderSlot('sidebar.header.search', { wide })}</div>}
+
+      {/* Active-session region: the live session rows sit between the search
+          region and the browsing region, wide only. It takes the height its rows
+          need and scrolls past half the column, so the browsing region below
+          keeps a usable share of the column however many sessions run. */}
+      {wide && (
+        <div className={css.activeArea}>
+          {renderSlot('sidebar.activeSessions', { wide })}
+        </div>
+      )}
 
       {/* The browsing region fills the column between the search region and the
           foot in both states; its rail icon column rides the same slot. */}

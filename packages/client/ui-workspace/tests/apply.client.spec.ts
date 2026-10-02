@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {
+  ActiveSessionsInjected, WorkspaceBrowserInjected, WorkspacePickerInjected,
+} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import { ActiveSessionsSection } from '../src/client/ActiveSessionsSection.tsx'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 
@@ -20,6 +23,7 @@ async function bench() {
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
+  const archiveSession = vi.fn(async () => ({}))
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -28,7 +32,7 @@ async function bench() {
   const binding = vi.fn(() => ({ session: { rename: renameSession } }))
   const fork = vi.fn(async () => 'forked' as never)
   ctx.provide('workspaces', {
-    create, startSession, rename, insertSessionBefore,
+    create, startSession, rename, insertSessionBefore, archiveSession,
   } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
   ctx.provide('connection', {
@@ -42,11 +46,12 @@ async function bench() {
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
-    insertSessionBefore, open, clear, search, renameSession, binding, fork,
+    insertSessionBefore, open, clear, search, renameSession, binding, fork, archiveSession,
   }
 }
 
-type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
+type HoleName = 'sidebar.workspaces' | 'sidebar.activeSessions'
+  | 'conversation.hero.workspace' | 'conversation.empty.workspace'
 
 /** Declare any subset of the holes with a single root registration ('root' is a single slot). */
 function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
@@ -117,6 +122,31 @@ describe('ui-workspace apply', () => {
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
   })
 
+  it('registers the active-session section on the browsing region store', async () => {
+    const b = await bench()
+    declare(b.slots, 'sidebar.workspaces', 'sidebar.activeSessions')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('sidebar.activeSessions')[0]!
+    expect(entry.component).toBe(ActiveSessionsSection)
+    expect(entry.locale).toBe('workspace')
+    // One store handle serves the browsing region and the active-session
+    // section, so a pin either section writes is one fact.
+    expect(entry.store).toBe(b.slots.entries('sidebar.workspaces')[0]!.store)
+    const active = (entry.inject as () => ActiveSessionsInjected)()
+    active.open('session' as never)
+    expect(b.open).toHaveBeenCalledWith('session')
+    active.forkSession('session' as never)
+    await vi.waitFor(() => {
+      expect(b.open).toHaveBeenCalledWith('forked')
+    })
+    expect(b.fork).toHaveBeenCalledWith({ sessionId: 'session', increaseTitle: true })
+    await active.archiveSession('session' as never)
+    expect(b.archiveSession).toHaveBeenCalledWith('session')
+    await active.renameSession('session' as never, 'renamed session')
+    expect(b.binding).toHaveBeenCalledWith('session')
+    expect(b.renameSession).toHaveBeenCalledWith('renamed session')
+  })
+
   it('declares the two directory-flow holes and reports their occupancy per surface', async () => {
     const b = await bench()
     declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
@@ -158,11 +188,12 @@ describe('ui-workspace apply', () => {
 
   it('unregisters every entry on teardown', async () => {
     const b = await bench()
-    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace', 'conversation.empty.workspace')
+    declare(b.slots, 'sidebar.workspaces', 'sidebar.activeSessions', 'conversation.hero.workspace', 'conversation.empty.workspace')
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
+    expect(b.slots.entries('sidebar.activeSessions')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
     // expect(b.slots.entries('conversation.empty.workspace')).toHaveLength(0)
   })
