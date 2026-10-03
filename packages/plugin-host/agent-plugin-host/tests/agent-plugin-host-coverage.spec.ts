@@ -748,3 +748,69 @@ describe('agent-plugin-host delegation row and frontmatter faults', () => {
     expect(discovery.problems).toContainEqual(expect.stringContaining('must equal its file stem'))
   })
 })
+
+describe('agent-plugin-host root agent definitions', () => {
+  /** One definition body with the keys every definition requires. */
+  function definitionBody(name: string): string {
+    return `name = "${name}"\ndescription = "D."\ndeveloper_instructions = "I."\n`
+  }
+
+  it('reads a bundle-level definition shared across the bundle', async () => {
+    const { root } = await freshPlugin()
+    await put(join(root, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({ name: 'fixture-skills' }))
+    await put(join(root, 'agents', 'planner.toml'), definitionBody('planner'))
+
+    const discovery = await AgentPluginHost.discoverBundle(root)
+
+    expect(discovery.agents).toHaveLength(1)
+    expect(discovery.agents[0]?.pluginId).toBe('fixture-skills')
+    expect(discovery.agents[0]?.toolName).toBe('planner')
+  })
+
+  it('mounts a row for a bundle-level definition', async () => {
+    const { root } = await freshPlugin()
+    await put(join(root, 'agents', 'planner.toml'), definitionBody('planner'))
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(AgentPluginHost, { bundleRoot: root, providerName: 'demo' })
+
+    expect(await ctx.agentPlugins.listAgentDefinitions()).toHaveLength(1)
+    await fiber.dispose()
+  })
+
+  it('reads a bundle-level definition under a non-directory root', async () => {
+    const { root } = await freshPlugin()
+    await put(join(root, 'agents', 'planner.toml'), definitionBody('planner'))
+    await put(join(root, 'agents', 'loose.md'), '# not an agent\n')
+
+    const discovery = await AgentPluginHost.discoverBundle(root)
+
+    expect(discovery.agents.map(entry => entry.name)).toEqual(['planner'])
+  })
+
+  it('reports a bundle-level definition that cannot be read', async () => {
+    const { root } = await freshPlugin()
+    const file = join(root, 'agents', 'planner.toml')
+    await put(file, definitionBody('planner'))
+    await chmod(file, 0o000)
+    try {
+      const discovery = await AgentPluginHost.discoverBundle(root)
+
+      expect(discovery.problems).toContainEqual(expect.stringContaining('cannot be read'))
+    } finally {
+      await chmod(file, 0o600)
+    }
+  })
+
+  it('skips a shared tool name a plugin row already claimed', async () => {
+    const { root, plugin } = await freshPlugin()
+    await put(join(plugin, 'agents', 'planner.toml'), definitionBody('planner'))
+    await put(join(root, 'agents', 'planner.toml'), definitionBody('planner'))
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(AgentPluginHost, { bundleRoot: root, providerName: 'demo' })
+
+    expect(await ctx.agentPlugins.listAgentDefinitions()).toHaveLength(2)
+    await fiber.dispose()
+  })
+})

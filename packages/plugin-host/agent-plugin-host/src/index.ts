@@ -199,7 +199,7 @@ async listMcpServers(): Promise<readonly DiscoveredMcpServer[]> {
    */
 async listAgentDefinitions(): Promise<readonly DiscoveredAgentDefinition[]> {
   const discovery = await this.read()
-  return discovery.plugins.flatMap(plugin => plugin.agents)
+  return [...discovery.agents, ...discovery.plugins.flatMap(plugin => plugin.agents)]
 }
 
 /** Re-read the installed bundle, reporting an unreadable root as empty. */
@@ -208,7 +208,7 @@ private async read(): Promise<BundleDiscovery> {
     return await discoverBundle(this.root)
   } catch (error) {
     this.ctx.logger.warn(`agent-plugin-host: "${this.root}" could not be read: ${String(error)}`)
-    return { root: this.root, plugins: [], skills: [], problems: [] }
+    return { root: this.root, plugins: [], skills: [], agents: [], problems: [] }
   }
 }
 }

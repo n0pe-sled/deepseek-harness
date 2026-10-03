@@ -35,6 +35,10 @@ const SKILL_UI_FILE = join('agents', 'openai.yaml')
 const CODEX_MANIFEST = join('.codex-plugin', 'plugin.json')
 /** Claude Code plugin manifest, which only some upstream plugins ship. */
 const CLAUDE_MANIFEST = join('.claude-plugin', 'plugin.json')
+/** A marketplace's own plugin list in the Codex layout. */
+const CODEX_MARKETPLACE = join('.agents', 'plugins', 'marketplace.json')
+/** A marketplace's own plugin list in the Claude Code layout. */
+const CLAUDE_MARKETPLACE = join('.claude-plugin', 'marketplace.json')
 /** MCP server declaration beside the plugin it belongs to. */
 const MCP_MANIFEST = join(MCP_DIR, 'manifest.json')
 /** The skill-name grammar `ctx.skills` accepts. */
@@ -156,6 +160,14 @@ export interface BundleDiscovery {
   readonly plugins: readonly DiscoveredPlugin[]
   /** Standalone skills the root's own `skills/` directory holds. */
   readonly skills: readonly DiscoveredSkill[]
+  /**
+   * Root agent definitions the root's own `agents/` directory holds.
+   *
+   * Upstream keeps its shared definitions here rather than under a plugin, and one
+   * plugin's `ownership.json` may name several at once, so a root definition
+   * belongs to the bundle: `pluginId` names the bundle.
+   */
+  readonly agents: readonly DiscoveredAgentDefinition[]
   /** One human-readable diagnostic per unusable entry. */
   readonly problems: readonly string[]
 }
@@ -183,7 +195,10 @@ export async function discoverBundle(root: string): Promise<BundleDiscovery> {
   const plugins = directories.has('plugins')
     ? await discoverMarketplace(absolute, problems)
     : await discoverSinglePlugin(absolute, problems)
-  return { root: absolute, plugins, skills, problems }
+  const agents = directories.has(AGENTS_DIR)
+    ? await discoverAgentDefinitions(join(absolute, AGENTS_DIR), await bundleNameOf(absolute), problems)
+    : []
+  return { root: absolute, plugins, skills, agents, problems }
 }
 
 /** Resolve one root directory, failing loud when the caller named a non-directory. */
@@ -388,6 +403,18 @@ async function discoverAgentDefinitions(
     if (definition !== undefined) definitions.push(definition)
   }
   return sortedBy(definitions, definition => definition.name)
+}
+
+/**
+ * The bundle's own name, which a root agent definition is attributed to.
+ *
+ * A marketplace manifest names the bundle; a directory holding none is named by
+ * its own last segment, which is the layout a person installed by hand.
+ */
+async function bundleNameOf(root: string): Promise<string> {
+  const manifest = await readJsonObject(join(root, CODEX_MARKETPLACE))
+    ?? await readJsonObject(join(root, CLAUDE_MARKETPLACE))
+  return stringField(manifest, 'name') ?? root.slice(root.lastIndexOf('/') + 1)
 }
 
 /** Read one agent definition TOML file, reporting why an unusable one was skipped. */
