@@ -17,6 +17,7 @@
  *   --list      print discovered plugins and skills, then exit
  *   --dry-run   show what would change without writing anything
  *   --install   build this checkout and install its launchers in ~/.local/bin
+ *   --agent-marketplace/--agent-plugin  forward agent-plugin installs to the dsh CLI
  */
 
 import { execFileSync } from 'node:child_process'
@@ -65,6 +66,8 @@ const { values } = parseArgs({
     'dry-run': { type: 'boolean', default: false },
     'ensure-deps': { type: 'boolean', default: false },
     install: { type: 'boolean', default: false },
+    'agent-marketplace': { type: 'string', default: '' },
+    'agent-plugin': { type: 'string', default: '' },
     plugins: { type: 'string', default: '' },
     skills: { type: 'string', default: '' },
     help: { type: 'boolean', default: false },
@@ -86,6 +89,10 @@ Options:
                       @deepseek-ai/* (idempotent, no TUI, no profile writes)
   --install           build the checked-out harness and install dsh plus
                       dsh-manage into ~/.local/bin
+  --agent-marketplace <specs>  comma-separated marketplaces to add (path or
+                      owner/repo), then exit; requires the dsh CLI
+  --agent-plugin <specs>  comma-separated <plugin>@<marketplace> agent plugins
+                      to install into --profile, then exit; requires the dsh CLI
   --dry-run           show what would change without writing anything
   --help              show this help
 
@@ -503,6 +510,31 @@ if (values.list) {
   for (const plugin of plugins) process.stdout.write(`  ${plugin.name}\t${plugin.dir}\n`)
   process.stdout.write(`skills (${skills.length}):\n`)
   for (const skill of skills) process.stdout.write(`  ${skill.name}\t${skill.dir}\n`)
+  process.exit(0)
+}
+
+if (values['agent-marketplace'] !== '' || values['agent-plugin'] !== '') {
+  // Agent plugins come from the dsh CLI, which owns the marketplace, the
+  // profile patch row, and the settings this install has to touch. This script
+  // forwards to it rather than restating any of that.
+  const dsh = process.env.DSH_BIN ?? 'dsh'
+  const forward = (args) => {
+    const result = spawnSync(dsh, [...args, '--profile', values.profile], {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    })
+    if (result.error !== undefined) {
+      process.stderr.write(`dsh-manage: cannot run ${dsh}: ${String(result.error)}; use --install first\n`)
+      process.exit(1)
+    }
+    if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1)
+  }
+  // A marketplace is added before any plugin installed from it.
+  const specs = (value) => value.split(',').map(entry => entry.trim()).filter(Boolean)
+  for (const spec of specs(values['agent-marketplace'])) {
+    forward(['plugin', 'marketplace', 'add', spec])
+  }
+  for (const spec of specs(values['agent-plugin'])) forward(['plugin', 'install', spec])
   process.exit(0)
 }
 

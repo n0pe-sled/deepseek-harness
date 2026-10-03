@@ -1,0 +1,6 @@
+interface:
+  display_name: Beta
+  short_description: Fixture skill that only a person may invoke.
+  default_prompt: Use $beta for this workflow.
+policy:
+  allow_implicit_invocation: false

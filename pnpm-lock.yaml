@@ -312,6 +312,9 @@ importers:
       node-addon-require-builtin:
         specifier: ^0.1.4
         version: 0.1.4
+      yaml:
+        specifier: ^2.4.2
+        version: 2.9.0
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -1018,6 +1021,9 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-agent-plugin-host':
+        specifier: workspace:^
+        version: link:../../plugin-host/agent-plugin-host
       '@deepseek-ai/dsh-api-gateway':
         specifier: workspace:^
         version: link:../../api/gateway
@@ -4524,7 +4530,7 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       koffi:
-        specifier: ^3.1.0
+        specifier: ~3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -5211,7 +5217,7 @@ importers:
         specifier: workspace:^
         version: link:../../util/native-command
       koffi:
-        specifier: ^3.1.0
+        specifier: ~3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -5913,6 +5919,40 @@ importers:
         specifier: workspace:^
         version: link:../../interaction/user-questions
 
+  packages/plugin-host/agent-plugin-host:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      smol-toml:
+        specifier: ^1.7.1
+        version: 1.7.1
+      yaml:
+        specifier: ^2.4.2
+        version: 2.9.0
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+      '@deepseek-ai/dsh-subagent':
+        specifier: workspace:^
+        version: link:../../subagent/subagent
+      '@deepseek-ai/dsh-tool-subagent':
+        specifier: workspace:^
+        version: link:../../subagent/tool-subagent
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+
   packages/preset/agent-presets:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -6068,7 +6108,7 @@ importers:
   packages/sandbox/sandbox-windows-acl:
     dependencies:
       koffi:
-        specifier: ^3.1.0
+        specifier: ~3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -6424,7 +6464,7 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       koffi:
-        specifier: ^3.1.0
+        specifier: ~3.1.1
         version: 3.1.1
     devDependencies:
       '@deepseek-ai/cordis':
@@ -7936,7 +7976,7 @@ importers:
   packages/subprocess/subprocess-local:
     dependencies:
       koffi:
-        specifier: ^3.1.0
+        specifier: ~3.1.1
         version: 3.1.1
       node-pty:
         specifier: 1.2.0-beta.15

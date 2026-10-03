@@ -240,6 +240,36 @@ The model-facing `skill({ name })` tool validates the kebab-case name, finds the
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxagentplugins--agentplugindirectory"></a>
+
+### `ctx.agentPlugins` — `AgentPluginDirectory`
+
+Exposes the installed bundles a deployment carries.
+
+The consumer is out of process — the Web GUI's Skills & MCP settings section — so this is a service face rather than a private closure.
+
+```ts cordis-catalog
+/**
+   * List every plugin the installed bundle carries.
+   * @returns the discovered plugins, or an empty list when the root is unreadable.
+   */
+async list(): Promise<readonly DiscoveredPlugin[]>
+
+/**
+   * List every MCP server the installed bundle declares.
+   * @returns the declarations, each reporting whether it can be activated.
+   */
+async listMcpServers(): Promise<readonly DiscoveredMcpServer[]>
+
+/**
+   * List every agent definition the installed bundle carries.
+   * @returns the definitions with the public tool name each is reached through.
+   */
+async listAgentDefinitions(): Promise<readonly DiscoveredAgentDefinition[]>
+```
+
+Source: [`packages/plugin-host/agent-plugin-host/src/index.ts`](../../packages/plugin-host/agent-plugin-host/src/index.ts)
+
 <a id="ctxskills--skillregistry"></a>
 
 ### `ctx.skills` — `SkillRegistry`

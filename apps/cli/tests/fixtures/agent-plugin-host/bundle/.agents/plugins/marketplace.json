@@ -1,0 +1,20 @@
+{
+  "name": "fixture-skills",
+  "interface": {
+    "displayName": "Fixture Skills"
+  },
+  "plugins": [
+    {
+      "name": "demo",
+      "source": {
+        "source": "local",
+        "path": "./plugins/demo"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

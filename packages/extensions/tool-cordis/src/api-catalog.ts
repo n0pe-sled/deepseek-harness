@@ -131,6 +131,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'agentPlugins',
+    summary: 'Exposes the installed bundles a deployment carries.',
+    description: 'Exposes the installed bundles a deployment carries.\n\nThe consumer is out of process — the Web GUI\'s Skills & MCP settings section — so this is a service face rather than a private closure.',
+    methods: [
+      {
+        signature: 'async list(): Promise<readonly DiscoveredPlugin[]>',
+        description: 'List every plugin the installed bundle carries.',
+        parameters: [],
+        returns: 'the discovered plugins, or an empty list when the root is unreadable.',
+      },
+      {
+        signature: 'async listMcpServers(): Promise<readonly DiscoveredMcpServer[]>',
+        description: 'List every MCP server the installed bundle declares.',
+        parameters: [],
+        returns: 'the declarations, each reporting whether it can be activated.',
+      },
+      {
+        signature: 'async listAgentDefinitions(): Promise<readonly DiscoveredAgentDefinition[]>',
+        description: 'List every agent definition the installed bundle carries.',
+        parameters: [],
+        returns: 'the definitions with the public tool name each is reached through.',
+      },
+    ],
+  },
+  {
     key: 'agentPresets',
     summary: 'Registry over the deployment\'s agent presets.',
     description: 'Registry over the deployment\'s agent presets.\n\nDiscovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read.',
@@ -3256,6 +3281,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DirectoryRegistrationHandle',
     declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
+  },
+  {
+    name: 'DiscoveredAgentDefinition',
+    declaration: 'export interface DiscoveredAgentDefinition {\n    readonly pluginId: string;\n    readonly name: string;\n    readonly description: string;\n    readonly model?: string;\n    readonly reasoningEffort?: string;\n    readonly sandboxMode?: string;\n    readonly instructions: string;\n    readonly skillReferences: readonly string[];\n    readonly toolName: string;\n    readonly deniedTools: readonly string[];\n}',
+  },
+  {
+    name: 'DiscoveredMcpServer',
+    declaration: 'export interface DiscoveredMcpServer {\n    readonly pluginId: string;\n    readonly name: string;\n    readonly type: string;\n    readonly command: string;\n    readonly args: readonly string[];\n    readonly entrypoint?: string;\n    readonly secrets: readonly string[];\n    readonly configuration: readonly string[];\n    readonly actionable: boolean;\n}',
+  },
+  {
+    name: 'DiscoveredPlugin',
+    declaration: 'export interface DiscoveredPlugin {\n    readonly id: string;\n    readonly directory: string;\n    readonly displayName?: string;\n    readonly description?: string;\n    readonly version?: string;\n    readonly skills: readonly DiscoveredSkill[];\n    readonly agents: readonly DiscoveredAgentDefinition[];\n    readonly mcpServers: readonly DiscoveredMcpServer[];\n}',
+  },
+  {
+    name: 'DiscoveredSkill',
+    declaration: 'export interface DiscoveredSkill {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly file: string;\n    readonly directory: string;\n    readonly modelInvocable: boolean;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'Domain',

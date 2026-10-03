@@ -1,0 +1,20 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cosmokit" },
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../core/agent" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../skill/skill" },
+    { "path": "../../subagent/subagent" },
+    { "path": "../../subagent/subagent-spawn-in-process" },
+    { "path": "../../subagent/tool-subagent" },
+    { "path": "../../core/tools" }
+  ]
+}
