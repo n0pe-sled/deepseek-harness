@@ -10,7 +10,9 @@ An unreachable workflow is not neutral. `issue-lifecycle.yml` failed on every pu
 
 ## Decision
 
-The fork carries the eight workflows it cannot run nowhere: `issue-lifecycle.yml`, `docs-pages.yml`, `release-publish.yml`, `release-vendor-publish.yml`, `landlock-run-release.yml`, `python-release.yml`, `e2b-e2e.yml`, and `pi-ai-provider-e2e.yml`.
+The fork carries none of the nine workflows it cannot run or does not want: `issue-lifecycle.yml`, `docs-pages.yml`, `release-publish.yml`, `release-vendor-publish.yml`, `landlock-run-release.yml`, `python-release.yml`, `e2b-e2e.yml`, `pi-ai-provider-e2e.yml`, and `e2e.yml`.
+
+`e2e.yml` is the real-API lane: it pins `DEEPSEEK_BASE_URL` to `https://api.deepseek.com`, consumes a `DEEPSEEK_API_KEY_EXTERNAL` secret, hard-fails its own preflight when that secret is absent, and runs on a schedule and on every master push. On this fork it therefore failed on every scheduled and master run. The harness pre-installs no model provider — the `llm-deepseek` row is absent from the base composition — so a lane that reaches a DeepSeek endpoint is checking a route this deployment does not ship.
 
 What stays is every workflow that produces signal here: the pull-request matrix in `ci.yml`, the master drill in `ci-master.yml`, `expected-filenames.yml`, `issue-policy.yml`, `sandbox.yml`, the real-API `e2e.yml`, `sandbox-release.yml`, the signed desktop release in `release-macos.yml`, and the three credential-free pack workflows (`release.yml`, `release-vendor.yml`, `landlock-run.yml`).
 
