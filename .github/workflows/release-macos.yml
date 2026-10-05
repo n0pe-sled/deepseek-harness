@@ -24,6 +24,9 @@ on:
   pull_request:
     paths:
       - 'apps/desktop/**'
+      # The closure stages every dsh-base dependency, and the bundled harness
+      # smoke is the only lane that proves an installed row still loads.
+      - 'packages/plugin-host/**'
       - '.github/workflows/release-macos.yml'
   workflow_dispatch:
     inputs:

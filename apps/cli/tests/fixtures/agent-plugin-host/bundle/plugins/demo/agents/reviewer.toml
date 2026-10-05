@@ -1,0 +1,16 @@
+name = "reviewer"
+description = "Fixture agent definition. Use for reviewing a fixture, and route exploits to the exploit agent."
+model = "fixture-model"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+
+developer_instructions = """
+You are the `reviewer` fixture agent.
+
+Mission:
+- Review the fixture and report what it does.
+
+Workflow:
+1. Read the fixture.
+2. Report one finding.
+"""

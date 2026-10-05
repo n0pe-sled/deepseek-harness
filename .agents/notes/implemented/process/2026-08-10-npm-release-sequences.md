@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Partial supersession: [this fork carries only the CI workflows it can run](2026-10-03-fork-scope-ci-workflows.md) — the publish workflows are gone, the pack workflows stay.
+
 ## Problem
 
 This repository held three unrelated groups of publishable packages and no channel that sent any of them to a registry.

@@ -1,0 +1,13 @@
+- insert:
+    - id: agent-plugin-host
+      name: '@deepseek-ai/dsh-agent-plugin-host'
+      config:
+        bundleRoot: !!js process.env.DSH_AGENT_PLUGIN_FIXTURE
+        providerName: demo
+
+- id: skill-filesystem
+  config:
+    watch: false
+
+- id: session-telemetry-otel
+  disabled: true

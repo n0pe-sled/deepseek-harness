@@ -1,0 +1,26 @@
+{
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "Fixture agent plugin for the agent-plugin-host assembled snapshot.",
+  "author": {
+    "name": "fixture"
+  },
+  "license": "MIT",
+  "keywords": [
+    "fixture"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Demo",
+    "shortDescription": "Fixture agent plugin.",
+    "longDescription": "Fixture agent plugin for the agent-plugin-host assembled snapshot.",
+    "developerName": "fixture",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use the demo fixture."
+    ]
+  }
+}
