@@ -1,12 +1,12 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import type { SshOptions } from '../../src/main/instances/ssh'
+import type { SshOptions } from '../../src/shared/instance.ts'
 import type { InstanceConfig } from '../../src/shared/instance.ts'
 
 let parseReadyUrl: (line: string) => string | undefined
 let buildSshArgs: (opts: SshOptions, localPort: number) => string[]
 let buildTunnelArgs: (opts: SshOptions, localPort: number, remotePort: number) => string[]
 let buildSshCommandArgs: (opts: SshOptions, command: string) => string[]
-let describeSshFailure: (stderr: string, opts: SshOptions, remotePort: number) => string | undefined
+let describeSshFailure: (stderr: string, opts: SshOptions, remotePort?: number) => string | undefined
 let sshErrorTail: (stderr: string, lines?: number) => string
 let normalizeRawUrl: (url: string) => string
 let describeTarget: (config: InstanceConfig) => string
@@ -137,6 +137,32 @@ describe('describeSshFailure', () => {
   it('explains that BatchMode means no password prompt', () => {
     expect(describeSshFailure('n0pe-sled@box: Permission denied (publickey).', opts, 3000))
       .toContain('key-based authentication')
+  })
+
+  it('names a ProxyCommand that could not run, not the key', () => {
+    // Captured on a Mac whose ~/.ssh/config reaches the host through
+    // `ProxyCommand ncat --proxy-type socks5 ...`: the app's ssh child
+    // inherited launchd's PATH, so the shell running the ProxyCommand never
+    // found ncat. The trailing line is what ssh reports for any failed proxy,
+    // and it reads like a remote failure it is not.
+    const described = describeSshFailure([
+      'zsh:1: command not found: ncat',
+      'Connection closed by UNKNOWN port 65535',
+    ].join('\n'), opts)
+    expect(described).toContain('ProxyCommand')
+    expect(described).toContain('PATH')
+    expect(described).not.toContain('key-based authentication')
+  })
+
+  it('reads a refused proxy as a failed proxy, not a remote port', () => {
+    const described = describeSshFailure([
+      'Ncat: Proxy connection failed: Connection refused.',
+      'Connection closed by UNKNOWN port 65535',
+    ].join('\n'), opts)
+    expect(described).toContain('ProxyCommand')
+    // The refused-forward reading is the one a tunnel makes of a bare
+    // "Connection refused"; a proxy that refused is a different cause.
+    expect(described).not.toContain('Nothing is listening')
   })
 
   it('covers the transport failures a user actually hits', () => {

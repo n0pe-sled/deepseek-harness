@@ -14,6 +14,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
 import type { SshOptions } from '../../shared/instance.ts'
+import { augmentedEnv } from './exec-path.ts'
 
 export interface SshTunnelHandle {
   localPort: number
@@ -46,6 +47,22 @@ export function buildSshBaseArgs(opts: SshOptions): string[] {
   return args
 }
 
+/**
+ * The environment every ssh child runs with.
+ *
+ * Exported for the same reason as {@link buildSshBaseArgs}: the provisioner
+ * spawns its own ssh children, and an ssh invocation that resolves
+ * `ProxyCommand` helpers differently from the tunnel's would fail where the other
+ * succeeds. `ProxyCommand` runs through the user's shell with the PATH here, and
+ * an app started from Finder inherits launchd's PATH, which holds no directory a
+ * package manager installs into.
+ *
+ * @returns a copy of this process's environment with the PATH widened.
+ */
+export function sshSpawnEnv(): NodeJS.ProcessEnv {
+  return augmentedEnv(process.env)
+}
+
 /** Build `[user@]host` for one option set. */
 export function sshDestination(opts: SshOptions): string {
   return opts.user !== undefined && opts.user !== '' ? `${opts.user}@${opts.host}` : opts.host
@@ -59,18 +76,35 @@ export function sshDestination(opts: SshOptions): string {
  * "process exited" and the user has nothing to go on. Each branch names the
  * cause and what to change.
  *
+ * The proxy path is checked first. A `ProxyCommand` that cannot run, and a proxy
+ * that refuses it, both end with ssh reporting the connection closed by an
+ * unknown peer, which reads like a remote failure and is not one: the cause is on
+ * this machine. The same text is what a failed provision command reports, so both
+ * callers share this one classifier.
+ *
  * The refused-forward case deserves its own words: ssh with
  * `ExitOnForwardFailure=yes` treats a refused *connection* through an
  * established forward as a channel error rather than a startup failure, so the
  * process keeps running and the app only sees the port never answering. That is
  * what a remote port with nothing behind it looks like, and it is the single
- * most confusing failure this path has.
+ * most confusing failure this path has. It needs `remotePort`, so a caller without
+ * one (a provision command) reads the same stderr as a transport failure instead.
+ *
+ * @param stderr - ssh's stderr text.
+ * @param opts - the options the call ran with, for the destination and host.
+ * @param remotePort - the forwarded remote port, when one call was forwarding.
+ * @returns guidance naming the cause, or undefined when the text names none.
  */
-export function describeSshFailure(stderr: string, opts: SshOptions, remotePort: number): string | undefined {
+export function describeSshFailure(stderr: string, opts: SshOptions, remotePort?: number): string | undefined {
   const text = stderr.trim()
   if (text === '') return undefined
   const destination = sshDestination(opts)
-  if (/Connection refused/iu.test(text)) {
+  if (/Ncat:|ProxyCommand|ProxyJump|Connection closed by UNKNOWN/iu.test(text)) {
+    return `ssh could not reach ${opts.host}: the command it runs to reach the host failed on this machine. `
+      + 'The app hands ssh the standard installation directories on PATH, so a helper named by a ProxyCommand '
+      + '(such as ncat from the nmap package) has to be installed in one of them, and any proxy it routes through has to be running.'
+  }
+  if (remotePort !== undefined && /Connection refused/iu.test(text)) {
     return `Nothing is listening on 127.0.0.1:${String(remotePort)} on ${opts.host}. `
       + 'Either start dsh there, or turn on "Ship this app\'s harness to the host" so the app runs it for you.'
   }
@@ -141,7 +175,7 @@ export function runSshCommand(
 ): Promise<SshCommandResult> {
   const args = buildSshCommandArgs(opts, command)
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'], env: sshSpawnEnv() })
     let stdout = ''
     let stderr = ''
     let settled = false
@@ -202,7 +236,7 @@ export async function forwardSshTunnelTo(
   const localPort = await findFreePort()
   const args = buildTunnelArgs(opts, localPort, remotePort)
 
-  const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'], env: sshSpawnEnv() })
   let stderr = ''
   let refused = false
   log(`ssh ${args.join(' ')}`)

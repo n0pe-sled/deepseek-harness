@@ -12,7 +12,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import type { LocalOptions } from '../../shared/instance.ts'
 import { parseReadyUrl } from '../../shared/readiness.ts'
 import { bundledHarnessArgs, resolveBundledHarness, seedBundledHarnessHome, type BundledHarness } from './bundled.ts'
-import { augmentPath } from './exec-path.ts'
+import { augmentedEnv } from './exec-path.ts'
 
 export interface LocalHandle {
   endpoint: string
@@ -63,10 +63,9 @@ export interface LaunchCommand {
  */
 export function resolveLaunchCommand(opts: LocalOptions, resolveBundled: () => BundledHarness | undefined = resolveBundledHarness): LaunchCommand {
   const configured = opts.dshPath?.trim()
-  const env = { ...process.env, ...(opts.env ?? {}) }
   // Both shapes need a usable PATH: the harness spawns bash/rg/ssh helpers, and
   // a LaunchServices-started app inherits a minimal PATH.
-  env.PATH = augmentPath(env.PATH ?? '', env.HOME)
+  const env = augmentedEnv({ ...process.env, ...(opts.env ?? {}) })
 
   if (configured !== undefined && configured !== '') {
     const bin = normalizeDshPath(configured)

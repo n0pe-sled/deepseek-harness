@@ -183,6 +183,12 @@ Requirements and limits, stated plainly:
 
 - **Key-based ssh is required.** Every ssh call runs with `BatchMode=yes`, so a
   missing key fails immediately rather than prompting into a GUI with no terminal.
+- **An ssh helper has to sit in a standard directory.** Every ssh child runs with
+  `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin`, `~/.local/bin`, and
+  `~/bin` appended to the inherited `PATH`. ssh runs a `ProxyCommand` through the
+  user's shell, which searches that `PATH`, so a `ProxyCommand` naming a helper
+  installed anywhere else fails — as one naming `ncat` did, before this widening,
+  in an app that Finder started and that therefore inherited launchd's `PATH`.
 - **`node` must be on the remote's PATH** (`^22.19.0 || >=24.0.0`). The app ships
   no remote Node runtime. The closure itself is ~300MB on disk, ~40MB compressed.
 - **glibc only.** Alpine and other musl hosts are refused with that reason.
