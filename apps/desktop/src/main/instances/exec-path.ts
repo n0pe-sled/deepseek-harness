@@ -37,6 +37,23 @@ export function augmentPath(path: string, home?: string): string {
 }
 
 /**
+ * A copy of `env` whose PATH carries the standard executable directories.
+ *
+ * A child that shells out resolves its own helpers through the PATH it is handed,
+ * and ssh is one: its `ProxyCommand` runs through the user's shell, which
+ * searches that PATH. An app started from Finder hands its ssh children
+ * launchd's PATH, so a `ProxyCommand` naming an installed helper such as `ncat`
+ * fails with "command not found" and ssh reports the connection closed with no
+ * peer. Taking a copy leaves the caller's environment untouched.
+ *
+ * @param env - environment the child would otherwise inherit.
+ * @returns a copy with the widened PATH and every other entry unchanged.
+ */
+export function augmentedEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, PATH: augmentPath(env.PATH ?? '', env.HOME) }
+}
+
+/**
  * The PATH a container CLI runs with: `augmentPath` plus the directories the
  * CLI itself lives in. The CLI needs the widened PATH for more than its own
  * lookup, because it resolves credential helpers and plugins on PATH too, and
