@@ -1,6 +1,7 @@
 # Agent Note: Publish the documentation site from a release tag
 
 Status: implemented
+Archived: 2026-10-03
 
 ## Problem
 

@@ -44,6 +44,6 @@ Site publication remains separate from site construction. A dedicated GitHub Act
 
 ## Consequences
 
-Documentation facts have one editable home, public routes remain stable across source moves, and the site can include generated references without committing another generated copy. Local development watches canonical inputs and regenerates the disposable projection. The layout gate makes an obsolete site-specific Markdown tree a merge failure instead of ignored build input. Publication to Pages runs as a manual dispatch from a release tag, so the site presents a released snapshot rather than the current master ([why](2026-08-21-documentation-site-tag-release.md)).
+Documentation facts have one editable home, public routes remain stable across source moves, and the site can include generated references without committing another generated copy. Local development watches canonical inputs and regenerates the disposable projection. The layout gate makes an obsolete site-specific Markdown tree a merge failure instead of ignored build input. Publication to Pages runs as a manual dispatch from a release tag, so the site presents a released snapshot rather than the current master ([why](../../archived/process/2026-08-21-documentation-site-tag-release.md)).
 
 The publication manifest is a maintained allowlist, and link projection adds a small repository-specific build adapter. A new kind of Markdown link behavior needs a projector test. Mermaid support also increases the client bundle size, but preserves diagrams already used by the canonical documentation.

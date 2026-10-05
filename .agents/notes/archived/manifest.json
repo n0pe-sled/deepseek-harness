@@ -332,6 +332,8 @@
     "process/2026-08-08-review-driven-issue-lifecycle-triggers.i18n.yaml": "sha256:4c28c59d3fc323e7cd01eff31f1fe759834719c5bede1e82b39f868970bf856d",
     "process/2026-08-08-review-driven-issue-lifecycle-triggers.md": "sha256:1b0514de5d030170e91e12e4d6ba788a9247f840e82700faa385a1c0c76ab857",
     "process/2026-08-08-review-driven-issue-lifecycle-triggers.zh.md": "sha256:028d78d61f603d8bac64c4cce20b393a78f8e029d3bb4976e79a47ecaefa6032",
+    "process/2026-08-10-event-directed-pr-review-status.md": "sha256:1a430386a6290afca4cbe37342925ef1736f332ff13f04b2c9b47e8021f628cc",
+    "process/2026-08-21-documentation-site-tag-release.md": "sha256:5017c051bfcc4a8731113ddf82e6c5a0a528e94a9eb892d2ff0ae1fab5d1e93f",
     "simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.i18n.yaml": "sha256:ad3d1263cb0051b885173bf064de62065e2c646ccaae2d7250723da3b4eab90c",
     "simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.md": "sha256:8fb061d51c8c23b47d2367814bab3623c6d5b972f38d207a273caa9030b579bd",
     "simplification/2026-06-20-drop-unconsumed-llm-adapter-change-event.zh.md": "sha256:2ffeaca91f82844a5616d6dcce6b4af514bb8a7c46f78e47f668b204ac6edc04",

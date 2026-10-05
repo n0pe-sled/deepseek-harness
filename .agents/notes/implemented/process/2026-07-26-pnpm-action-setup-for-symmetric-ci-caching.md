@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Partial supersession: [this fork carries only the CI workflows it can run](2026-10-03-fork-scope-ci-workflows.md) — the publish workflows are gone, the pack workflows stay.
+
 ## Problem
 
 Outside `landlock-run.yml`, each workflow that installed pnpm hand-provisioned it with `corepack enable`, and five of them further repeated a hand-rolled cache setup — `pnpm store path --silent >> $GITHUB_OUTPUT`, then `actions/cache@v4` keyed on `pnpm-lock.yaml`: `e2e.yml`, `docs-pages.yml`, `pi-ai-provider-e2e.yml`, `build-exe-for-python-sdk.yml`, and the node-compat, serial-linux, and benchmark jobs of `ci.yml`. The maintained equivalent — `pnpm/action-setup@v4` (reads `packageManager` from package.json) plus `actions/setup-node` with `cache: pnpm` — was already proven in-repo in `landlock-run.yml`, and corepack's removal from newer Node distributions made every `corepack enable` a known future break.
