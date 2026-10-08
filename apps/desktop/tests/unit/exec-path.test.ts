@@ -11,7 +11,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { augmentPath, containerPath, findExecutable } from '../../src/main/instances/exec-path.ts'
+import { augmentedEnv, augmentPath, containerPath, findExecutable } from '../../src/main/instances/exec-path.ts'
 
 /** launchd's PATH, the one a Dock-launched app starts with. */
 const LAUNCHD_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
@@ -33,6 +33,23 @@ describe('augmentPath', () => {
   it('does not add relative user directories without a home', () => {
     const result = augmentPath('', '')
     expect(result).not.toContain('.local/bin')
+  })
+})
+
+describe('augmentedEnv', () => {
+  it('widens the PATH a child would inherit and keeps every other entry', () => {
+    const env = augmentedEnv({ PATH: LAUNCHD_PATH, HOME: '/Users/me', LANG: 'en_US.UTF-8' })
+    expect(env.PATH).toContain('/opt/homebrew/bin')
+    expect(env.PATH).toContain('/Users/me/.local/bin')
+    expect(env.LANG).toBe('en_US.UTF-8')
+  })
+
+  it('leaves the environment it was handed untouched', () => {
+    // In-place widening would edit `process.env` for every later spawn in the
+    // process, including ones that were never meant to see the added directories.
+    const source: NodeJS.ProcessEnv = { PATH: LAUNCHD_PATH, HOME: '/Users/me' }
+    augmentedEnv(source)
+    expect(source.PATH).toBe(LAUNCHD_PATH)
   })
 })
 

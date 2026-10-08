@@ -36,7 +36,7 @@ import {
   targetForFacts,
   type RemoteFacts,
 } from './provision-parse.ts'
-import { buildSshCommandArgs, runSshCommand, type SshCommandResult } from './ssh.ts'
+import { buildSshCommandArgs, describeSshFailure, runSshCommand, sshSpawnEnv, type SshCommandResult } from './ssh.ts'
 
 /** Default remote parent directory for shipped closures, relative to `$HOME`. */
 export const DEFAULT_REMOTE_ROOT = '.dsh-desktop/harness'
@@ -136,11 +136,14 @@ export class RemoteProvisioner {
 
     if (result.code !== 0 && result.stdout.trim() === '') {
       // BatchMode means ssh never prompts, so a missing key arrives as an exit
-      // code rather than as a prompt the user cannot see.
+      // code rather than as a prompt the user cannot see. Which failure this was
+      // is only in the text: a refused key on this machine's side of the
+      // connection, or a ProxyCommand ssh could not run at all.
       const detail = lastLines(result.stderr, 3)
       throw new ProvisionRefusedError(
         `could not run a command on ${opts.host} over ssh${detail === '' ? '' : `: ${detail}`}. `
-        + 'Provisioning needs key-based authentication: ssh runs in BatchMode and cannot prompt for a password.',
+        + (describeSshFailure(result.stderr, opts)
+          ?? 'Provisioning needs key-based authentication: ssh runs in BatchMode and cannot prompt for a password.'),
       )
     }
 
@@ -571,7 +574,7 @@ export function pipeClosure(
 export const shipOverSsh: ShipTransport = async (opts, extractCommand, source, log) => {
   const args = buildSshCommandArgs(opts, extractCommand)
   await new Promise<void>((resolve, reject) => {
-    const child = spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'], env: sshSpawnEnv() })
     let stdout = ''
     let stderr = ''
     let settled = false
