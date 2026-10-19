@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "macOS desktop shell for local and remote DeepSeek Harness (dsh) instances",
   "main": "out/main/index.js",
   "type": "module",
@@ -59,7 +59,10 @@
         "dmg"
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "DSH Desktop needs local network access to connect to local AI model servers."
+      }
     },
     "dmg": {
       "title": "DSH Desktop ${version}",
